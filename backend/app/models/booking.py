@@ -1,12 +1,19 @@
-from datetime import date, datetime
+from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Integer, String
 
 from app.models.base import Base
 
 
 class Booking(Base):
     __tablename__ = "bookings"
+    __table_args__ = (
+        Index(
+            "ix_bookings_external_source_external_id",
+            "external_source",
+            "external_id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     apartment_id = Column(Integer, ForeignKey("apartments.id"), nullable=False, index=True)
