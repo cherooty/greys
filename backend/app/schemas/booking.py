@@ -29,3 +29,8 @@ class BookingResponse(BookingBase):
     class Config:
         from_attributes = True
 
+
+class BookingAvailabilityRange(BaseModel):
+    check_in_date: date
+    check_out_date: date
+
