@@ -30,39 +30,66 @@ export function ApartmentsList({
   setEditAddress,
 }: ApartmentsListProps) {
   return (
-    <ul>
-      {apartments.map((a) => (
-        <li key={a.id}>
-          {editingId === a.id ? (
-            <form onSubmit={onSaveEdit}>
-              <div>
-                <input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                />
-              </div>
-              <div>
-                <input
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                />
-              </div>
-              <button type="submit">Save</button>
-            </form>
-          ) : (
-            <>
-              <div>{a.name}</div>
-              {a.address ? <div>{a.address}</div> : null}
-              <button type="button" onClick={() => onStartEdit(a)}>
-                Edit
-              </button>
-              <button type="button" onClick={() => onDelete(a.id)}>
-                Delete
-              </button>
-            </>
-          )}
-        </li>
-      ))}
-    </ul>
+    <div className="max-w-2xl mx-auto mt-6 space-y-4">
+      <ul>
+        {apartments.map((a) => (
+          <li
+            key={a.id}
+            className="border rounded-xl p-4 shadow-sm bg-white flex justify-between items-center hover:shadow-md transition"
+          >
+            {editingId === a.id ? (
+              <form
+                onSubmit={onSaveEdit}
+                className="flex flex-wrap items-center gap-2 w-full justify-between"
+              >
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    className="border rounded px-2 py-1"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                  />
+                  <input
+                    className="border rounded px-2 py-1"
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="bg-blue-600 text-white px-3 py-1 rounded"
+                >
+                  Save
+                </button>
+              </form>
+            ) : (
+              <>
+                <div className="flex flex-col">
+                  <div className="font-semibold text-lg">{a.name}</div>
+                  {a.address ? (
+                    <div className="text-sm text-gray-500">{a.address}</div>
+                  ) : null}
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    className="text-blue-600 hover:underline mr-3"
+                    onClick={() => onStartEdit(a)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="text-red-600 hover:underline"
+                    onClick={() => onDelete(a.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

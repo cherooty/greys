@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-
 import { ApartmentForm } from "./components/ApartmentForm";
 import { ApartmentsList, type Apartment } from "./components/ApartmentsList";
 
@@ -12,128 +11,100 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("http://localhost:8000/api/apartments")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load");
-        return res.json();
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setApartments(Array.isArray(data) ? data : []);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setApartments([]);
-      });
-    return () => {
-      cancelled = true;
-    };
+    fetch("http://localhost:8000/api/apartments/")
+      .then((res) => res.json())
+      .then(setApartments)
+      .catch(() => setApartments([]));
   }, []);
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
-
-    const body: { name: string; address?: string | null } = { name: trimmed };
-    const addr = address.trim();
-    if (addr) body.address = addr;
 
     fetch("http://localhost:8000/api/apartments/", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name, address }),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to create");
-        return res.json();
-      })
-      .then((created: Apartment) => {
+      .then((res) => res.json())
+      .then((created) => {
+        setApartments((prev) => (prev ? [...prev, created] : [created]));
         setName("");
         setAddress("");
-        setApartments((prev) =>
-          prev === null ? [created] : [...prev, created],
-        );
-      })
-      .catch(() => { });
+      });
   }
 
   function handleDelete(id: number) {
+    if (!window.confirm("Delete this apartment?")) return;
+
     fetch(`http://localhost:8000/api/apartments/${id}/`, {
       method: "DELETE",
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to delete");
-        setApartments((prev) =>
-          prev === null ? prev : prev.filter((a) => a.id !== id),
-        );
-      })
-      .catch(() => {});
+    }).then(() => {
+      setApartments((prev) =>
+        prev ? prev.filter((a) => a.id !== id) : prev,
+      );
+    });
   }
 
-  function handleStartEdit(apartment: Apartment) {
-    setEditingId(apartment.id);
-    setEditName(apartment.name);
-    setEditAddress(apartment.address ?? "");
+  function handleStartEdit(a: Apartment) {
+    setEditingId(a.id);
+    setEditName(a.name);
+    setEditAddress(a.address ?? "");
   }
 
   function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (editingId === null) return;
-    const trimmed = editName.trim();
-    if (!trimmed) return;
-
-    const body = {
-      name: trimmed,
-      address: editAddress.trim() || null,
-    };
 
     fetch(`http://localhost:8000/api/apartments/${editingId}/`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        name: editName,
+        address: editAddress,
+      }),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to update");
-        return res.json();
-      })
-      .then((updated: Apartment) => {
+      .then((res) => res.json())
+      .then((updated) => {
         setApartments((prev) =>
-          prev === null ? prev : prev.map((x) => (x.id === updated.id ? updated : x)),
+          prev?.map((a) => (a.id === updated.id ? updated : a)) ?? prev,
         );
         setEditingId(null);
-      })
-      .catch(() => {});
+      });
   }
 
   return (
-    <>
-      <h1>Apartments</h1>
-      <ApartmentForm
-        name={name}
-        address={address}
-        onChangeName={(e) => setName(e.target.value)}
-        onChangeAddress={(e) => setAddress(e.target.value)}
-        onSubmit={handleCreate}
-      />
-      {apartments === null ? (
-        <p>Loading...</p>
-      ) : apartments.length === 0 ? (
-        <p>No apartments</p>
-      ) : (
-        <ApartmentsList
-          apartments={apartments}
-          editingId={editingId}
-          editName={editName}
-          editAddress={editAddress}
-          onStartEdit={handleStartEdit}
-          onSaveEdit={handleSaveEdit}
-          onDelete={handleDelete}
-          setEditName={setEditName}
-          setEditAddress={setEditAddress}
+    <div className="min-h-screen bg-gray-200 py-8">
+      <div className="max-w-2xl mx-auto px-4">
+        <h1 className="text-2xl font-bold mb-6">Apartments</h1>
+
+        <ApartmentForm
+          name={name}
+          address={address}
+          onChangeName={(e) => setName(e.target.value)}
+          onChangeAddress={(e) => setAddress(e.target.value)}
+          onSubmit={handleCreate}
         />
-      )}
-    </>
+
+        {apartments === null ? (
+          <p>Loading...</p>
+        ) : apartments.length === 0 ? (
+          <p>No apartments</p>
+        ) : (
+          <ApartmentsList
+            apartments={apartments}
+            editingId={editingId}
+            editName={editName}
+            editAddress={editAddress}
+            onStartEdit={handleStartEdit}
+            onSaveEdit={handleSaveEdit}
+            onDelete={handleDelete}
+            setEditName={setEditName}
+            setEditAddress={setEditAddress}
+          />
+        )}
+      </div>
+    </div>
   );
 }
