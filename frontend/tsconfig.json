@@ -6,7 +6,10 @@
     "node_modules",
     "build",
     "dist",
-    "**/*.test.ts"
+    "**/*.test.ts",
+    "src/components/ui",
+    "src/lib",
+    "src/pages"
   ],
   "compilerOptions": {
     "noEmit": true,
@@ -17,10 +20,10 @@
       "dom.iterable"
     ],
     "resolveJsonModule": true,
+    "module": "ESNext",
     "allowImportingTsExtensions": true,
     "moduleResolution": "bundler",
     "types": [
-      "node",
       "vite/client"
     ],
     "paths": {
