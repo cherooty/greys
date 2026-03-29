@@ -39,7 +39,10 @@ def list_apartments(db: Session = Depends(get_db)):
 def get_apartment_availability(apartment_id: int, db: Session = Depends(get_db)):
     bookings = (
         db.query(Booking)
-        .filter(Booking.apartment_id == apartment_id)
+        .filter(
+            Booking.apartment_id == apartment_id,
+            Booking.status == "confirmed",
+        )
         .order_by(Booking.check_in_date)
         .all()
     )
