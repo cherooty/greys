@@ -22,6 +22,11 @@ class BookingCreate(BookingBase):
     pass
 
 
+class BookingUpdate(BaseModel):
+    check_in_date: date
+    check_out_date: date
+
+
 class BookingResponse(BookingBase):
     id: int
     created_at: datetime | None = None
