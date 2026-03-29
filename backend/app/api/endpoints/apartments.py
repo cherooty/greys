@@ -43,10 +43,26 @@ def get_apartment_availability(apartment_id: int, db: Session = Depends(get_db))
         .order_by(Booking.check_in_date)
         .all()
     )
-    return [
+    ranges = [
         BookingAvailabilityRange(
             check_in_date=b.check_in_date,
             check_out_date=b.check_out_date,
         )
         for b in bookings
     ]
+    if not ranges:
+        return []
+
+    merged: list[BookingAvailabilityRange] = []
+    current = ranges[0]
+    for nxt in ranges[1:]:
+        if nxt.check_in_date <= current.check_out_date:
+            current = BookingAvailabilityRange(
+                check_in_date=current.check_in_date,
+                check_out_date=max(current.check_out_date, nxt.check_out_date),
+            )
+        else:
+            merged.append(current)
+            current = nxt
+    merged.append(current)
+    return merged
