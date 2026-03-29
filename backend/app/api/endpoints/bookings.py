@@ -62,8 +62,23 @@ def create_booking(booking: BookingCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/", response_model=list[BookingResponse])
-def list_bookings(db: Session = Depends(get_db)):
-    return db.query(Booking).order_by(Booking.check_in_date).all()
+def list_bookings(
+    db: Session = Depends(get_db),
+    apartment_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    status: str | None = None,
+):
+    q = db.query(Booking)
+    if apartment_id is not None:
+        q = q.filter(Booking.apartment_id == apartment_id)
+    if status is not None:
+        q = q.filter(Booking.status == status)
+    if date_from is not None:
+        q = q.filter(Booking.check_out_date > date_from)
+    if date_to is not None:
+        q = q.filter(Booking.check_in_date < date_to)
+    return q.order_by(Booking.check_in_date).all()
 
 
 @router.patch("/{booking_id}", response_model=BookingResponse)
