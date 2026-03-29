@@ -65,3 +65,14 @@ def create_booking(booking: BookingCreate, db: Session = Depends(get_db)):
 def list_bookings(db: Session = Depends(get_db)):
     return db.query(Booking).order_by(Booking.check_in_date).all()
 
+
+@router.patch("/{booking_id}/cancel", response_model=BookingResponse)
+def cancel_booking(booking_id: int, db: Session = Depends(get_db)):
+    booking = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    booking.status = "cancelled"
+    db.commit()
+    db.refresh(booking)
+    return booking
+
