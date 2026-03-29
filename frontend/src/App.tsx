@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from "react";
 
-type Apartment = {
-  id: number;
-  name: string;
-  address?: string | null;
-};
+import { ApartmentForm } from "./components/ApartmentForm";
+import { ApartmentsList, type Apartment } from "./components/ApartmentsList";
 
 export default function App() {
   const [name, setName] = useState("");
@@ -113,63 +110,29 @@ export default function App() {
   return (
     <>
       <h1>Apartments</h1>
-      <form onSubmit={handleCreate}>
-        <div>
-          <label>
-            name{" "}
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-        </div>
-        <div>
-          <label>
-            address{" "}
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-          </label>
-        </div>
-        <button type="submit">Create</button>
-      </form>
+      <ApartmentForm
+        name={name}
+        address={address}
+        onChangeName={(e) => setName(e.target.value)}
+        onChangeAddress={(e) => setAddress(e.target.value)}
+        onSubmit={handleCreate}
+      />
       {apartments === null ? (
         <p>Loading...</p>
       ) : apartments.length === 0 ? (
         <p>No apartments</p>
       ) : (
-        <ul>
-          {apartments.map((a) => (
-            <li key={a.id}>
-              {editingId === a.id ? (
-                <form onSubmit={handleSaveEdit}>
-                  <div>
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <input
-                      value={editAddress}
-                      onChange={(e) => setEditAddress(e.target.value)}
-                    />
-                  </div>
-                  <button type="submit">Save</button>
-                </form>
-              ) : (
-                <>
-                  <div>{a.name}</div>
-                  {a.address ? <div>{a.address}</div> : null}
-                  <button type="button" onClick={() => handleStartEdit(a)}>
-                    Edit
-                  </button>
-                  <button type="button" onClick={() => handleDelete(a.id)}>
-                    Delete
-                  </button>
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+        <ApartmentsList
+          apartments={apartments}
+          editingId={editingId}
+          editName={editName}
+          editAddress={editAddress}
+          onStartEdit={handleStartEdit}
+          onSaveEdit={handleSaveEdit}
+          onDelete={handleDelete}
+          setEditName={setEditName}
+          setEditAddress={setEditAddress}
+        />
       )}
     </>
   );
