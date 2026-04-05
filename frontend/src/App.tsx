@@ -77,6 +77,37 @@ function isoAddDays(isoDate: string, deltaDays: number): string {
   ).padStart(2, "0")}`;
 }
 
+function formatDateRU(iso: string) {
+  const d = new Date(iso + "T12:00:00");
+  return `${String(d.getDate()).padStart(2, "0")}.${String(
+    d.getMonth() + 1,
+  ).padStart(2, "0")}.${d.getFullYear()}`;
+}
+
+function formatBookingRange(start: string, end: string) {
+  const s = new Date(start + "T12:00:00");
+  const e = new Date(end + "T12:00:00");
+
+  const sameMonth =
+    s.getMonth() === e.getMonth() &&
+    s.getFullYear() === e.getFullYear();
+
+  if (sameMonth) {
+    const dayStart = s.getDate();
+    const dayEnd = e.getDate();
+
+    const month = s.toLocaleString("ru-RU", { month: "long" });
+    const year = s.getFullYear();
+
+    return `${dayStart} — ${dayEnd} ${month} ${year} г.`;
+  }
+
+  const format = (d: Date) =>
+    `${d.getDate()} ${d.toLocaleString("ru-RU", { month: "short" })} ${d.getFullYear()}`;
+
+  return `${format(s)} — ${format(e)}`;
+}
+
 function localTodayKey(): string {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
@@ -210,6 +241,8 @@ export default function App() {
   const [formData, setFormData] = useState({
     guest_name: "",
     total_price: "",
+    check_in_time: "",
+    check_out_time: "",
   });
 
   const [sortField, setSortField] = useState<string>("check_in_date");
@@ -520,21 +553,18 @@ export default function App() {
                   <div className="bg-white rounded-xl shadow p-4 flex-1 min-h-[12rem] min-w-0 flex flex-col max-h-[calc(100vh-10rem)]">
                     <div className="overflow-auto flex-1 min-h-0 -mx-1 px-1">
                       <div
-                        className="grid gap-0 text-sm min-w-max"
+                        className="grid gap-x-2 gap-y-0 text-sm min-w-max"
                         style={{
                           gridTemplateColumns: `120px repeat(${apartments.length}, minmax(72px, 1fr))`,
                         }}
                       >
                         <div className="sticky left-0 top-0 z-[26] bg-gray-50 border-b border-gray-200" />
-                        {apartments.map((apt, aptIdx) => (
+                        {apartments.map((apt) => (
                           <div
                             key={apt.id}
                             className={
                               "sticky top-0 z-[24] text-center text-xs text-gray-500 font-medium py-1 border-b border-gray-200 " +
-                              (apartmentColors[apt.name] ?? "bg-gray-50") +
-                              (aptIdx < apartments.length - 1
-                                ? " border-r border-gray-300"
-                                : "")
+                              (apartmentColors[apt.name] ?? "bg-gray-50")
                             }
                           >
                             {apt.name}
@@ -625,7 +655,7 @@ export default function App() {
                                       </div>
                                     </div>
 
-                                    {apartments.map((apt, aptIdx) => {
+                                    {apartments.map((apt) => {
                                       const booking = bookings?.find(
                                         (b) =>
                                           b.apartment_id === apt.id &&
@@ -670,9 +700,6 @@ export default function App() {
                                               : "") +
                                             (isInSelection(day, apt.id)
                                               ? " !bg-blue-200"
-                                              : "") +
-                                            (aptIdx < apartments.length - 1
-                                              ? " border-r border-gray-300"
                                               : "")
                                           }
                                           onMouseDown={(e) => {
@@ -774,15 +801,23 @@ export default function App() {
                           selection.start < selection.end
                             ? selection.start
                             : selection.end;
-                        const end =
+                        const lastStay =
                           selection.start > selection.end
                             ? selection.start
                             : selection.end;
+                        const checkOut = isoAddDays(lastStay, 1);
 
                         setBookingModal({
                           apartmentId: contextMenu.apartmentId,
                           start,
-                          end,
+                          end: checkOut,
+                        });
+
+                        setFormData({
+                          guest_name: "",
+                          total_price: "",
+                          check_in_time: "",
+                          check_out_time: "",
                         });
 
                         setContextMenu(null);
@@ -796,8 +831,32 @@ export default function App() {
                     <div
                       className="px-3 py-1 hover:bg-gray-100 cursor-pointer text-red-600"
                       onClick={() => {
-                        console.log("DELETE BOOKING", contextMenu);
-                        setContextMenu(null);
+                        const booking = bookings?.find(
+                          (b) =>
+                            b.apartment_id === contextMenu.apartmentId &&
+                            contextMenu.day >= b.check_in_date &&
+                            contextMenu.day < b.check_out_date,
+                        );
+                        if (!booking) return;
+
+                        const ok = window.confirm("Удалить бронь?");
+                        if (!ok) return;
+
+                        fetch(
+                          `http://localhost:8000/api/bookings/${booking.id}`,
+                          {
+                            method: "DELETE",
+                          },
+                        )
+                          .then(() => {
+                            setBookings((prev) =>
+                              prev
+                                ? prev.filter((b) => b.id !== booking.id)
+                                : prev,
+                            );
+                            setContextMenu(null);
+                          })
+                          .catch(console.error);
                       }}
                     >
                       Удалить бронь
@@ -811,9 +870,60 @@ export default function App() {
                     <div className="font-semibold mb-2">Создать бронь</div>
 
                     <div className="text-sm mb-2">
-                      {formatDay(bookingModal.start)} —{" "}
-                      {formatDay(bookingModal.end)}
+                      {formatBookingRange(bookingModal.start, bookingModal.end)}
                     </div>
+
+                    <div className="text-sm font-medium mb-1">
+                      {formatDateRU(bookingModal.start)}
+                    </div>
+                    <input
+                      type="date"
+                      className="border p-1 w-full mb-2 text-gray-500 text-xs"
+                      value={bookingModal.start}
+                      onChange={(e) =>
+                        setBookingModal((m) =>
+                          m ? { ...m, start: e.target.value } : m,
+                        )
+                      }
+                    />
+
+                    <div className="text-xs text-gray-500 mb-1">
+                      Время заезда {!formData.check_in_time && "—"}
+                    </div>
+                    <input
+                      type="time"
+                      className="border p-1 w-full mb-2"
+                      value={formData.check_in_time || ""}
+                      onChange={(e) =>
+                        setFormData({ ...formData, check_in_time: e.target.value })
+                      }
+                    />
+
+                    <div className="text-sm font-medium mb-1">
+                      {formatDateRU(bookingModal.end)}
+                    </div>
+                    <input
+                      type="date"
+                      className="border p-1 w-full mb-2 text-gray-500 text-xs"
+                      value={bookingModal.end}
+                      onChange={(e) =>
+                        setBookingModal((m) =>
+                          m ? { ...m, end: e.target.value } : m,
+                        )
+                      }
+                    />
+
+                    <div className="text-xs text-gray-500 mb-1">
+                      Время выезда {!formData.check_out_time && "—"}
+                    </div>
+                    <input
+                      type="time"
+                      className="border p-1 w-full mb-2"
+                      value={formData.check_out_time || ""}
+                      onChange={(e) =>
+                        setFormData({ ...formData, check_out_time: e.target.value })
+                      }
+                    />
 
                     <input
                       placeholder="Имя гостя"
@@ -838,11 +948,6 @@ export default function App() {
                       <button
                         className="bg-blue-500 text-white px-2 py-1 rounded"
                         onClick={() => {
-                          const next = new Date(
-                            bookingModal.end + "T12:00:00",
-                          );
-                          next.setDate(next.getDate() + 1);
-
                           fetch("http://localhost:8000/api/bookings/", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
@@ -850,7 +955,7 @@ export default function App() {
                               apartment_id: bookingModal.apartmentId,
                               guest_name: formData.guest_name,
                               check_in_date: bookingModal.start,
-                              check_out_date: next.toISOString().slice(0, 10),
+                              check_out_date: bookingModal.end,
                               total_price: Number(formData.total_price || 0),
                               currency: "RUB",
                             }),
