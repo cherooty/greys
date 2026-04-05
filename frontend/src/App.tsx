@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ApartmentForm } from "./components/ApartmentForm";
 import { ApartmentsList, type Apartment } from "./components/ApartmentsList";
 
@@ -158,7 +158,13 @@ export default function App() {
     {},
   );
 
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [popup, setPopup] = useState<{
+    date: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const popupRef = useRef<HTMLDivElement | null>(null);
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
@@ -169,6 +175,15 @@ export default function App() {
     });
     return map;
   }, [enabledEvents]);
+
+  const eventsGrouped = useMemo(() => {
+    const map: Record<string, EventItem[]> = {};
+    events.forEach((e) => {
+      if (!map[e.date]) map[e.date] = [];
+      map[e.date].push(e);
+    });
+    return map;
+  }, []);
 
   const calendarMonths = useMemo(() => buildMonthSections(12), []);
 
@@ -204,6 +219,25 @@ export default function App() {
       .then(setBookings)
       .catch(() => setBookings([]));
   }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        popupRef.current &&
+        !popupRef.current.contains(event.target as Node)
+      ) {
+        setPopup(null);
+      }
+    }
+
+    if (popup) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [popup]);
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -360,9 +394,36 @@ export default function App() {
                                         " cursor-pointer min-w-0"
                                       }
                                       title={sem.holidayLabel}
-                                      onClick={() => {
+                                      onClick={(e) => {
                                         if (eventsByDate[day]) {
-                                          setSelectedDate(day);
+                                          const rect = (
+                                            e.currentTarget as HTMLElement
+                                          ).getBoundingClientRect();
+                                          const padding = 12;
+                                          const popupWidth = 220;
+                                          const popupHeight = 120;
+                                          let x = rect.right + 8;
+                                          let y = rect.top;
+                                          if (
+                                            x + popupWidth >
+                                            window.innerWidth - padding
+                                          ) {
+                                            x = rect.left - popupWidth - 8;
+                                          }
+                                          if (
+                                            y + popupHeight >
+                                            window.innerHeight - padding
+                                          ) {
+                                            y =
+                                              window.innerHeight -
+                                              popupHeight -
+                                              padding;
+                                          }
+                                          setPopup({
+                                            date: day,
+                                            x,
+                                            y,
+                                          });
                                         }
                                       }}
                                     >
@@ -419,23 +480,23 @@ export default function App() {
                   </div>
                 )
               )}
-              {selectedDate && (
-                <div className="fixed left-20 top-20 bg-white border shadow-lg rounded p-3 z-50">
+              {popup && (
+                <div
+                  ref={popupRef}
+                  className="fixed bg-white border shadow-lg rounded p-3 z-50"
+                  style={{
+                    left: popup.x,
+                    top: popup.y,
+                  }}
+                >
                   <div className="font-semibold mb-2">
-                    {formatDay(selectedDate)}
+                    {formatDay(popup.date)}
                   </div>
                   <div className="flex flex-col gap-1 text-sm">
-                    {eventsByDate[selectedDate]?.map((e) => (
+                    {eventsByDate[popup.date]?.map((e) => (
                       <div key={e.id}>{e.title}</div>
                     ))}
                   </div>
-                  <button
-                    type="button"
-                    className="mt-2 text-xs text-blue-600"
-                    onClick={() => setSelectedDate(null)}
-                  >
-                    Закрыть
-                  </button>
                 </div>
               )}
             </>
@@ -445,26 +506,44 @@ export default function App() {
             <>
               <h2 className="text-xl font-semibold mb-4">События</h2>
               <div className="bg-white rounded-xl shadow p-4 space-y-2 max-w-lg">
-                {events.map((e) => (
-                  <label
-                    key={e.id}
-                    className="flex items-center gap-2 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={enabledEvents[e.id] !== false}
-                      onChange={() =>
-                        setEnabledEvents((prev) => ({
-                          ...prev,
-                          [e.id]: !(prev[e.id] ?? true),
-                        }))
-                      }
-                    />
-                    <span>
-                      {e.title} ({e.date})
-                    </span>
-                  </label>
-                ))}
+                {(Object.entries(eventsGrouped) as [string, EventItem[]][])
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([date, list]) => (
+                    <div
+                      key={date}
+                      className="mb-4 border-b border-gray-100 pb-2 last:mb-0 last:border-b-0 last:pb-0"
+                    >
+                      <div className="text-sm font-semibold mb-1">
+                        {formatDay(date)}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {list.map((e) => (
+                          <label
+                            key={e.id}
+                            className="flex items-center gap-2 text-sm cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={enabledEvents[e.id] !== false}
+                              onChange={() =>
+                                setEnabledEvents((prev) => ({
+                                  ...prev,
+                                  [e.id]: !(prev[e.id] ?? true),
+                                }))
+                              }
+                            />
+                            <span
+                              className={
+                                e.type === "holiday" ? "text-red-600" : ""
+                              }
+                            >
+                              {e.title}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
               </div>
             </>
           )}
