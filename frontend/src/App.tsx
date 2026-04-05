@@ -164,6 +164,12 @@ export default function App() {
     y: number;
   } | null>(null);
 
+  const [selection, setSelection] = useState<{
+    apartmentId: number;
+    start: string;
+    end: string;
+  } | null>(null);
+
   const popupRef = useRef<HTMLDivElement | null>(null);
 
   const eventsByDate = useMemo(() => {
@@ -204,6 +210,19 @@ export default function App() {
 
   function isMonthExpanded(monthKey: string) {
     return expandedMonths[monthKey] === true;
+  }
+
+  function isInSelection(day: string, aptId: number) {
+    if (!selection || selection.apartmentId !== aptId) return false;
+
+    const d = new Date(day + "T12:00:00");
+    const s = new Date(selection.start + "T12:00:00");
+    const e = new Date(selection.end + "T12:00:00");
+
+    const start = s < e ? s : e;
+    const end = s > e ? s : e;
+
+    return d >= start && d <= end;
   }
 
   useEffect(() => {
@@ -375,7 +394,7 @@ export default function App() {
                   <div className="bg-white rounded-xl shadow p-4 flex-1 min-h-[12rem] min-w-0 flex flex-col max-h-[calc(100vh-10rem)]">
                     <div className="overflow-auto flex-1 min-h-0 -mx-1 px-1">
                       <div
-                        className="grid gap-1 text-sm min-w-max"
+                        className="grid gap-0 text-sm min-w-max"
                         style={{
                           gridTemplateColumns: `120px repeat(${apartments.length}, minmax(72px, 1fr))`,
                         }}
@@ -499,8 +518,36 @@ export default function App() {
                                             ) +
                                             (!isBooked
                                               ? " cursor-pointer hover:border-blue-400"
+                                              : "") +
+                                            (isInSelection(day, apt.id)
+                                              ? " !bg-blue-200"
                                               : "")
                                           }
+                                          onMouseDown={(e) => {
+                                            if (e.ctrlKey && selection) {
+                                              setSelection({
+                                                ...selection,
+                                                end: day,
+                                              });
+                                              return;
+                                            }
+
+                                            if (
+                                              selection &&
+                                              selection.start !==
+                                                selection.end &&
+                                              isInSelection(day, apt.id)
+                                            ) {
+                                              setSelection(null);
+                                              return;
+                                            }
+
+                                            setSelection({
+                                              apartmentId: apt.id,
+                                              start: day,
+                                              end: day,
+                                            });
+                                          }}
                                         />
                                       );
                                     })}
