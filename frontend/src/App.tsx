@@ -296,6 +296,35 @@ export default function App() {
       });
   }
 
+  function handleQuickBooking(apartmentId: number, day: string) {
+    const checkIn = day;
+    const next = new Date(day + "T12:00:00");
+    next.setDate(next.getDate() + 1);
+    const checkOut = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+
+    fetch("http://localhost:8000/api/bookings/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        apartment_id: apartmentId,
+        guest_name: "Guest",
+        check_in_date: checkIn,
+        check_out_date: checkOut,
+        total_price: 0,
+        currency: "RUB",
+      }),
+    })
+      .then((res) => res.json())
+      .then((newBooking: Booking) => {
+        setBookings((prev) =>
+          prev ? [...prev, newBooking] : [newBooking],
+        );
+      })
+      .catch(console.error);
+  }
+
   const calendarTodayKey = localTodayKey();
 
   return (
@@ -462,11 +491,16 @@ export default function App() {
                                       return (
                                         <div
                                           key={apt.id + "-" + day}
-                                          className={bookingCellClasses(
-                                            isBooked,
-                                            sem,
-                                            apt.name,
-                                          )}
+                                          className={
+                                            bookingCellClasses(
+                                              isBooked,
+                                              sem,
+                                              apt.name,
+                                            ) +
+                                            (!isBooked
+                                              ? " cursor-pointer hover:border-blue-400"
+                                              : "")
+                                          }
                                         />
                                       );
                                     })}
