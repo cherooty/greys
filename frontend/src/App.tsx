@@ -2,6 +2,13 @@ import React, { useEffect, useState } from "react";
 import { ApartmentForm } from "./components/ApartmentForm";
 import { ApartmentsList, type Apartment } from "./components/ApartmentsList";
 
+type Booking = {
+  id: number;
+  apartment_id: number;
+  check_in_date: string;
+  check_out_date: string;
+};
+
 export default function App() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -9,12 +16,20 @@ export default function App() {
   const [editName, setEditName] = useState("");
   const [editAddress, setEditAddress] = useState("");
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
+  const [bookings, setBookings] = useState<Booking[] | null>(null);
 
   useEffect(() => {
     fetch("http://localhost:8000/api/apartments/")
       .then((res) => res.json())
       .then(setApartments)
       .catch(() => setApartments([]));
+  }, []);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/bookings/")
+      .then((res) => res.json())
+      .then(setBookings)
+      .catch(() => setBookings([]));
   }, []);
 
   function handleCreate(e: React.FormEvent) {
@@ -74,6 +89,12 @@ export default function App() {
       });
   }
 
+  const days = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+
   return (
     <div className="min-h-screen bg-gray-200 py-8">
       <div className="max-w-2xl mx-auto px-4">
@@ -103,6 +124,55 @@ export default function App() {
             setEditName={setEditName}
             setEditAddress={setEditAddress}
           />
+        )}
+
+        <h2 className="text-xl font-semibold mt-10 mb-4">Bookings</h2>
+
+        {bookings === null ? (
+          <p>Loading...</p>
+        ) : (
+          apartments &&
+          bookings && (
+            <div className="overflow-x-auto">
+              <div className="grid grid-cols-[150px_repeat(7,1fr)] gap-1 text-sm">
+                <div />
+                {days.map((day) => (
+                  <div key={day} className="text-center font-medium">
+                    {day.slice(5)}
+                  </div>
+                ))}
+
+                {apartments.map((apt) => {
+                  const aptBookings = bookings.filter(
+                    (b) => b.apartment_id === apt.id,
+                  );
+
+                  return (
+                    <React.Fragment key={apt.id}>
+                      <div className="font-semibold">{apt.name}</div>
+
+                      {days.map((day) => {
+                        const isBooked = aptBookings.some(
+                          (b) =>
+                            day >= b.check_in_date && day < b.check_out_date,
+                        );
+
+                        return (
+                          <div
+                            key={day}
+                            className={
+                              "h-8 border " +
+                              (isBooked ? "bg-blue-400" : "bg-white")
+                            }
+                          />
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>
