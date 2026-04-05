@@ -133,44 +133,54 @@ export default function App() {
               ) : (
                 apartments &&
                 bookings && (
-                  <div className="overflow-x-auto">
-                    <div className="grid grid-cols-[150px_repeat(7,1fr)] gap-1 text-sm">
+                  <div className="overflow-x-auto bg-white rounded-xl shadow p-4">
+                    <div
+                      className="grid gap-1 text-sm"
+                      style={{
+                        gridTemplateColumns: `120px repeat(${apartments.length}, 1fr)`,
+                      }}
+                    >
                       <div />
-                      {days.map((day) => (
-                        <div key={day} className="text-center font-medium">
-                          {day.slice(5)}
+                      {apartments.map((apt) => (
+                        <div
+                          key={apt.id}
+                          className="text-center text-xs text-gray-500 font-medium"
+                        >
+                          {apt.name}
                         </div>
                       ))}
 
-                      {apartments.map((apt) => {
-                        const aptBookings = bookings.filter(
-                          (b) => b.apartment_id === apt.id,
-                        );
+                      {days.map((day) => (
+                        <React.Fragment key={day}>
+                          <div className="text-xs text-gray-500 flex items-center">
+                            {day.slice(5)}
+                          </div>
 
-                        return (
-                          <React.Fragment key={apt.id}>
-                            <div className="font-semibold">{apt.name}</div>
+                          {apartments.map((apt) => {
+                            const aptBookings = bookings.filter(
+                              (b) => b.apartment_id === apt.id,
+                            );
 
-                            {days.map((day) => {
-                              const isBooked = aptBookings.some(
-                                (b) =>
-                                  day >= b.check_in_date &&
-                                  day < b.check_out_date,
-                              );
+                            const isBooked = aptBookings.some(
+                              (b) =>
+                                day >= b.check_in_date &&
+                                day < b.check_out_date,
+                            );
 
-                              return (
-                                <div
-                                  key={day}
-                                  className={
-                                    "h-8 border " +
-                                    (isBooked ? "bg-blue-400" : "bg-white")
-                                  }
-                                />
-                              );
-                            })}
-                          </React.Fragment>
-                        );
-                      })}
+                            return (
+                              <div
+                                key={apt.id + "-" + day}
+                                className={
+                                  "h-8 border border-gray-200 " +
+                                  (isBooked
+                                    ? "bg-green-500 rounded-md"
+                                    : "bg-gray-50 hover:bg-gray-100")
+                                }
+                              />
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
                     </div>
                   </div>
                 )
