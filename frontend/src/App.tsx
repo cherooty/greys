@@ -7,6 +7,8 @@ type Booking = {
   apartment_id: number;
   check_in_date: string;
   check_out_date: string;
+  guest_name?: string;
+  total_price?: number;
 };
 
 type EventItem = {
@@ -67,6 +69,14 @@ function formatDay(dateStr: string): string {
   return `${d} ${RUSSIAN_MONTHS_SHORT[monthIdx]}`;
 }
 
+function isoAddDays(isoDate: string, deltaDays: number): string {
+  const d = new Date(isoDate + "T12:00:00");
+  d.setDate(d.getDate() + deltaDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 function localTodayKey(): string {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
@@ -106,16 +116,29 @@ function apartmentColumnIdleClasses(aptName: string): string {
   return "bg-gray-50 hover:bg-gray-100";
 }
 
-function bookingCellClasses(
-  isBooked: boolean,
-  sem: DaySemantics,
-  aptName: string,
-): string {
+function bookingCellClasses(sem: DaySemantics, aptName: string): string {
   const base = "h-8 border border-gray-200 ";
-  if (isBooked) return base + "bg-green-500 rounded-md hover:bg-green-600";
   if (sem.isHoliday) return base + "bg-red-50 hover:bg-red-100";
   if (sem.isWeekend) return base + "bg-blue-50 hover:bg-blue-100";
   return base + apartmentColumnIdleClasses(aptName);
+}
+
+function bookedRangeCellClasses(
+  day: string,
+  booking: Booking,
+  prevBooking: Booking | undefined,
+  nextBooking: Booking | undefined,
+): string {
+  const samePrev = prevBooking && prevBooking.id === booking.id;
+  const sameNext = nextBooking && nextBooking.id === booking.id;
+
+  let s =
+    "h-8 bg-green-500 hover:bg-green-600 text-white text-[10px] flex items-center justify-center px-0.5 min-w-0 overflow-hidden shadow-sm ";
+
+  if (!samePrev) s += "border-t border-gray-200 ";
+  if (!sameNext) s += "border-b border-gray-200 ";
+
+  return s.trim();
 }
 
 function buildMonthSections(monthCount: number): MonthSection[] {
@@ -151,7 +174,7 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [activeTab, setActiveTab] = useState<
-    "calendar" | "apartments" | "events"
+    "calendar" | "apartments" | "events" | "bookings"
   >("calendar");
 
   const [enabledEvents, setEnabledEvents] = useState<Record<string, boolean>>(
@@ -170,7 +193,30 @@ export default function App() {
     end: string;
   } | null>(null);
 
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    day: string;
+    apartmentId: number;
+    isBooked: boolean;
+  } | null>(null);
+
+  const [bookingModal, setBookingModal] = useState<{
+    apartmentId: number;
+    start: string;
+    end: string;
+  } | null>(null);
+
+  const [formData, setFormData] = useState({
+    guest_name: "",
+    total_price: "",
+  });
+
+  const [sortField, setSortField] = useState<string>("check_in_date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
@@ -225,6 +271,59 @@ export default function App() {
     return d >= start && d <= end;
   }
 
+  const sortedBookings = useMemo(() => {
+    if (!bookings) return null;
+    const aptName = (id: number) =>
+      apartments?.find((x) => x.id === id)?.name ?? String(id);
+    const list = [...bookings];
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "check_in_date":
+          cmp = a.check_in_date.localeCompare(b.check_in_date);
+          break;
+        case "check_out_date":
+          cmp = a.check_out_date.localeCompare(b.check_out_date);
+          break;
+        case "apartment":
+          cmp = aptName(a.apartment_id).localeCompare(aptName(b.apartment_id));
+          break;
+        case "guest_name":
+          cmp = (a.guest_name ?? "").localeCompare(b.guest_name ?? "");
+          break;
+        case "total_price":
+          cmp = (a.total_price ?? 0) - (b.total_price ?? 0);
+          break;
+        case "source":
+        case "guests_count":
+        case "owner_price":
+        case "comment":
+          cmp = 0;
+          break;
+        default:
+          cmp = a.check_in_date.localeCompare(b.check_in_date);
+      }
+      if (sortDirection === "desc") cmp = -cmp;
+      if (cmp === 0) cmp = a.id - b.id;
+      return cmp;
+    });
+    return list;
+  }, [bookings, apartments, sortField, sortDirection]);
+
+  function handleBookingsSort(field: string) {
+    if (sortField === field) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDirection("asc");
+    }
+  }
+
+  function sortHeaderArrow(field: string) {
+    if (sortField !== field) return "";
+    return sortDirection === "asc" ? " ↑" : " ↓";
+  }
+
   useEffect(() => {
     fetch("http://localhost:8000/api/apartments/")
       .then((res) => res.json())
@@ -257,6 +356,25 @@ export default function App() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [popup]);
+
+  useEffect(() => {
+    function handleOutside(event: MouseEvent) {
+      if (
+        contextMenuRef.current &&
+        !contextMenuRef.current.contains(event.target as Node)
+      ) {
+        setContextMenu(null);
+      }
+    }
+
+    if (contextMenu) {
+      document.addEventListener("mousedown", handleOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+    };
+  }, [contextMenu]);
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -378,14 +496,22 @@ export default function App() {
         >
           События
         </div>
+
+        <div
+          className={
+            "cursor-pointer p-2 rounded " +
+            (activeTab === "bookings" ? "bg-gray-200" : "")
+          }
+          onClick={() => setActiveTab("bookings")}
+        >
+          Бронирования
+        </div>
       </div>
 
       <div className="flex-1 p-6 min-h-0 flex flex-col">
         <div className="max-w-2xl mx-auto min-h-0 flex flex-col flex-1 w-full">
           {activeTab === "calendar" && (
             <>
-              <h2 className="text-xl font-semibold mb-4 shrink-0">Bookings</h2>
-
               {bookings === null ? (
                 <p>Loading...</p>
               ) : (
@@ -400,12 +526,15 @@ export default function App() {
                         }}
                       >
                         <div className="sticky left-0 top-0 z-[26] bg-gray-50 border-b border-gray-200" />
-                        {apartments.map((apt) => (
+                        {apartments.map((apt, aptIdx) => (
                           <div
                             key={apt.id}
                             className={
                               "sticky top-0 z-[24] text-center text-xs text-gray-500 font-medium py-1 border-b border-gray-200 " +
-                              (apartmentColors[apt.name] ?? "bg-gray-50")
+                              (apartmentColors[apt.name] ?? "bg-gray-50") +
+                              (aptIdx < apartments.length - 1
+                                ? " border-r border-gray-300"
+                                : "")
                             }
                           >
                             {apt.name}
@@ -496,34 +625,59 @@ export default function App() {
                                       </div>
                                     </div>
 
-                                    {apartments.map((apt) => {
-                                      const aptBookings = bookings.filter(
-                                        (b) => b.apartment_id === apt.id,
-                                      );
-
-                                      const isBooked = aptBookings.some(
+                                    {apartments.map((apt, aptIdx) => {
+                                      const booking = bookings?.find(
                                         (b) =>
+                                          b.apartment_id === apt.id &&
                                           day >= b.check_in_date &&
                                           day < b.check_out_date,
                                       );
+                                      const prevDay = isoAddDays(day, -1);
+                                      const nextDay = isoAddDays(day, 1);
+
+                                      const prevBooking = bookings?.find(
+                                        (b) =>
+                                          b.apartment_id === apt.id &&
+                                          prevDay >= b.check_in_date &&
+                                          prevDay < b.check_out_date,
+                                      );
+
+                                      const nextBooking = bookings?.find(
+                                        (b) =>
+                                          b.apartment_id === apt.id &&
+                                          nextDay >= b.check_in_date &&
+                                          nextDay < b.check_out_date,
+                                      );
+                                      const isBooked = booking !== undefined;
+                                      const isStart =
+                                        booking !== undefined &&
+                                        day === booking.check_in_date;
 
                                       return (
                                         <div
                                           key={apt.id + "-" + day}
                                           className={
-                                            bookingCellClasses(
-                                              isBooked,
-                                              sem,
-                                              apt.name,
-                                            ) +
-                                            (!isBooked
+                                            (booking
+                                              ? bookedRangeCellClasses(
+                                                  day,
+                                                  booking,
+                                                  prevBooking,
+                                                  nextBooking,
+                                                )
+                                              : bookingCellClasses(sem, apt.name)) +
+                                            (!booking
                                               ? " cursor-pointer hover:border-blue-400"
                                               : "") +
                                             (isInSelection(day, apt.id)
                                               ? " !bg-blue-200"
+                                              : "") +
+                                            (aptIdx < apartments.length - 1
+                                              ? " border-r border-gray-300"
                                               : "")
                                           }
                                           onMouseDown={(e) => {
+                                            if (e.button !== 0) return;
+
                                             if (e.ctrlKey && selection) {
                                               setSelection({
                                                 ...selection,
@@ -548,7 +702,28 @@ export default function App() {
                                               end: day,
                                             });
                                           }}
-                                        />
+                                          onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+
+                                            setContextMenu({
+                                              x: e.clientX,
+                                              y: e.clientY,
+                                              day,
+                                              apartmentId: apt.id,
+                                              isBooked,
+                                            });
+                                          }}
+                                        >
+                                          {isStart ? (
+                                            <span
+                                              className="truncate max-w-full text-center"
+                                              title={booking.guest_name ?? ""}
+                                            >
+                                              {booking.guest_name ?? ""}
+                                            </span>
+                                          ) : null}
+                                        </div>
                                       );
                                     })}
                                   </React.Fragment>
@@ -577,6 +752,123 @@ export default function App() {
                     {eventsByDate[popup.date]?.map((e) => (
                       <div key={e.id}>{e.title}</div>
                     ))}
+                  </div>
+                </div>
+              )}
+              {contextMenu && (
+                <div
+                  ref={contextMenuRef}
+                  className="fixed bg-white border shadow-md rounded p-2 z-50"
+                  style={{
+                    left: contextMenu.x,
+                    top: contextMenu.y,
+                  }}
+                >
+                  {!contextMenu.isBooked && selection && (
+                    <div
+                      className="px-3 py-1 hover:bg-gray-100 cursor-pointer"
+                      onClick={() => {
+                        if (!selection) return;
+
+                        const start =
+                          selection.start < selection.end
+                            ? selection.start
+                            : selection.end;
+                        const end =
+                          selection.start > selection.end
+                            ? selection.start
+                            : selection.end;
+
+                        setBookingModal({
+                          apartmentId: contextMenu.apartmentId,
+                          start,
+                          end,
+                        });
+
+                        setContextMenu(null);
+                      }}
+                    >
+                      Создать бронь
+                    </div>
+                  )}
+
+                  {contextMenu.isBooked && (
+                    <div
+                      className="px-3 py-1 hover:bg-gray-100 cursor-pointer text-red-600"
+                      onClick={() => {
+                        console.log("DELETE BOOKING", contextMenu);
+                        setContextMenu(null);
+                      }}
+                    >
+                      Удалить бронь
+                    </div>
+                  )}
+                </div>
+              )}
+              {bookingModal && (
+                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+                  <div className="bg-white rounded-xl p-4 w-[300px]">
+                    <div className="font-semibold mb-2">Создать бронь</div>
+
+                    <div className="text-sm mb-2">
+                      {formatDay(bookingModal.start)} —{" "}
+                      {formatDay(bookingModal.end)}
+                    </div>
+
+                    <input
+                      placeholder="Имя гостя"
+                      className="border p-1 w-full mb-2"
+                      value={formData.guest_name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, guest_name: e.target.value })
+                      }
+                    />
+
+                    <input
+                      placeholder="Сумма"
+                      className="border p-1 w-full mb-2"
+                      value={formData.total_price}
+                      onChange={(e) =>
+                        setFormData({ ...formData, total_price: e.target.value })
+                      }
+                    />
+
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setBookingModal(null)}>Отмена</button>
+                      <button
+                        className="bg-blue-500 text-white px-2 py-1 rounded"
+                        onClick={() => {
+                          const next = new Date(
+                            bookingModal.end + "T12:00:00",
+                          );
+                          next.setDate(next.getDate() + 1);
+
+                          fetch("http://localhost:8000/api/bookings/", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              apartment_id: bookingModal.apartmentId,
+                              guest_name: formData.guest_name,
+                              check_in_date: bookingModal.start,
+                              check_out_date: next.toISOString().slice(0, 10),
+                              total_price: Number(formData.total_price || 0),
+                              currency: "RUB",
+                            }),
+                          })
+                            .then((res) => res.json())
+                            .then((newBooking) => {
+                              setBookings((prev) => [
+                                ...(prev ?? []),
+                                newBooking,
+                              ]);
+                              setBookingModal(null);
+                              setSelection(null);
+                            });
+                        }}
+                      >
+                        Создать
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -625,6 +917,102 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+              </div>
+            </>
+          )}
+
+          {activeTab === "bookings" && (
+            <>
+              <h2 className="text-xl font-semibold mb-4">Бронирования</h2>
+              <div className="bg-white rounded-xl shadow p-4 max-w-full overflow-x-auto">
+                {bookings === null || sortedBookings === null ? (
+                  <p>Loading...</p>
+                ) : (
+                  <table className="w-full text-sm border-collapse text-left">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("check_in_date")}
+                        >
+                          check_in_date{sortHeaderArrow("check_in_date")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("check_out_date")}
+                        >
+                          check_out_date{sortHeaderArrow("check_out_date")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("apartment")}
+                        >
+                          apartment{sortHeaderArrow("apartment")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("source")}
+                        >
+                          source{sortHeaderArrow("source")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("guest_name")}
+                        >
+                          guest_name{sortHeaderArrow("guest_name")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("guests_count")}
+                        >
+                          guests_count{sortHeaderArrow("guests_count")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("owner_price")}
+                        >
+                          owner_price{sortHeaderArrow("owner_price")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("total_price")}
+                        >
+                          total_price{sortHeaderArrow("total_price")}
+                        </th>
+                        <th
+                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("comment")}
+                        >
+                          comment{sortHeaderArrow("comment")}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedBookings.map((b) => (
+                        <tr key={b.id} className="border-b border-gray-100">
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {b.check_in_date}
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {b.check_out_date}
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {apartments?.find((a) => a.id === b.apartment_id)
+                              ?.name ?? b.apartment_id}
+                          </td>
+                          <td className="py-2 pr-3 text-gray-400">—</td>
+                          <td className="py-2 pr-3">{b.guest_name ?? "—"}</td>
+                          <td className="py-2 pr-3 text-gray-400">—</td>
+                          <td className="py-2 pr-3 text-gray-400">—</td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {b.total_price ?? "—"}
+                          </td>
+                          <td className="py-2 pr-3 text-gray-400">—</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </>
           )}
