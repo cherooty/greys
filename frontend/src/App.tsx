@@ -112,6 +112,60 @@ function formatBookingRange(start: string, end: string) {
   return `${format(s)} — ${format(e)}`;
 }
 
+function bookingCurrencySymbol(currency: string | undefined): string {
+  const c = (currency ?? "RUB").toUpperCase();
+  if (c === "USD") return "$";
+  if (c === "EUR") return "€";
+  return "₽";
+}
+
+function bookingStayLastNightIso(b: Booking): string {
+  return isoAddDays(b.check_out_date, -1);
+}
+
+function bookingDateRangeCompact(b: Booking): string {
+  const inD = new Date(b.check_in_date + "T12:00:00");
+  const last = new Date(bookingStayLastNightIso(b) + "T12:00:00");
+  const d1 = inD.getDate();
+  const d2 = last.getDate();
+  const m1 = inD.getMonth();
+  const y1 = inD.getFullYear();
+  const m2 = last.getMonth();
+  const y2 = last.getFullYear();
+  const mo = (idx: number) => RUSSIAN_MONTHS_SHORT[idx];
+  if (d1 === d2 && m1 === m2 && y1 === y2) {
+    return `${d1} ${mo(m1)}`;
+  }
+  if (m1 === m2 && y1 === y2) {
+    return `${d1}\u2013${d2} ${mo(m1)}`;
+  }
+  return `${d1} ${mo(m1)} \u2013 ${d2} ${mo(m2)}`;
+}
+
+function bookingBlockLine1(b: Booking): string {
+  const range = bookingDateRangeCompact(b);
+  const raw = b.guest_name?.trim();
+  const name = raw ? raw : "Без имени";
+  return `${range} · ${name}`;
+}
+
+function bookingBlockLine2(b: Booking): string | null {
+  const chunks: string[] = [];
+  const raw = b.check_in_time?.trim();
+  const timeShort = raw
+    ? raw.length >= 5 && raw.includes(":")
+      ? raw.slice(0, 5)
+      : raw
+    : null;
+  if (timeShort) chunks.push(timeShort);
+  if (b.total_price != null) {
+    const n = Number(b.total_price);
+    if (!Number.isNaN(n)) chunks.push(`${n}${bookingCurrencySymbol(b.currency)}`);
+  }
+  if (chunks.length === 0) return null;
+  return chunks.join(" · ");
+}
+
 function localTodayKey(): string {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
@@ -168,7 +222,7 @@ function bookedRangeCellClasses(
   const sameNext = nextBooking && nextBooking.id === booking.id;
 
   let s =
-    "h-8 bg-green-500 hover:bg-green-600 text-white text-[10px] flex items-center justify-center px-0.5 min-w-0 overflow-hidden shadow-sm ";
+    "h-8 bg-green-500 hover:bg-green-600 text-white text-[10px] flex flex-col items-center justify-center gap-0 px-0.5 min-w-0 overflow-hidden shadow-sm leading-tight ";
 
   if (!samePrev) s += "border-t border-gray-200 ";
   if (!sameNext) s += "border-b border-gray-200 ";
@@ -277,6 +331,23 @@ export default function App() {
       check_in_time: "",
       check_out_time: "",
     });
+    setContextMenu(null);
+  }
+
+  function openBookingModalForEdit(b: Booking) {
+    setBookingModal({
+      bookingId: b.id,
+      apartmentId: b.apartment_id,
+      start: b.check_in_date,
+      end: b.check_out_date,
+    });
+    setFormData({
+      guest_name: b.guest_name ?? "",
+      total_price: b.total_price != null ? String(b.total_price) : "",
+      check_in_time: b.check_in_time ?? "",
+      check_out_time: b.check_out_time ?? "",
+    });
+    setSelection(null);
     setContextMenu(null);
   }
 
@@ -819,34 +890,30 @@ export default function App() {
                                           onClick={(e) => {
                                             if (!booking) return;
                                             e.stopPropagation();
-                                            setBookingModal({
-                                              bookingId: booking.id,
-                                              apartmentId: apt.id,
-                                              start: booking.check_in_date,
-                                              end: booking.check_out_date,
-                                            });
-                                            setFormData({
-                                              guest_name: booking.guest_name ?? "",
-                                              total_price:
-                                                booking.total_price != null
-                                                  ? String(booking.total_price)
-                                                  : "",
-                                              check_in_time:
-                                                booking.check_in_time ?? "",
-                                              check_out_time:
-                                                booking.check_out_time ?? "",
-                                            });
-                                            setSelection(null);
-                                            setContextMenu(null);
+                                            openBookingModalForEdit(booking);
                                           }}
                                         >
-                                          {isStart ? (
-                                            <span
-                                              className="truncate max-w-full text-center"
-                                              title={booking.guest_name ?? ""}
+                                          {booking && isStart ? (
+                                            <div
+                                              className="flex min-h-0 w-full min-w-0 flex-col items-center justify-center gap-0 text-center"
+                                              title={
+                                                [
+                                                  bookingBlockLine1(booking),
+                                                  bookingBlockLine2(booking),
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join("\n") || undefined
+                                              }
                                             >
-                                              {booking.guest_name ?? ""}
-                                            </span>
+                                              <span className="block w-full truncate text-xs leading-tight">
+                                                {bookingBlockLine1(booking)}
+                                              </span>
+                                              {bookingBlockLine2(booking) ? (
+                                                <span className="block w-full truncate text-xs leading-tight opacity-95">
+                                                  {bookingBlockLine2(booking)}
+                                                </span>
+                                              ) : null}
+                                            </div>
                                           ) : null}
                                         </div>
                                       );
@@ -938,180 +1005,6 @@ export default function App() {
                       Удалить бронь
                     </div>
                   )}
-                </div>
-              )}
-              {bookingModal && (
-                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-                  <div className="bg-white rounded-xl p-4 w-[300px]">
-                    <div className="font-semibold mb-2">
-                      {bookingModal.bookingId != null
-                        ? "Редактировать бронь"
-                        : "Создать бронь"}
-                    </div>
-
-                    <div className="text-sm mb-2">
-                      {formatBookingRange(bookingModal.start, bookingModal.end)}
-                    </div>
-
-                    <div className="text-sm font-medium mb-1">
-                      {formatDateRU(bookingModal.start)}
-                    </div>
-                    <input
-                      type="date"
-                      className="border p-1 w-full mb-2 text-gray-500 text-xs"
-                      value={bookingModal.start}
-                      onChange={(e) =>
-                        setBookingModal((m) =>
-                          m ? { ...m, start: e.target.value } : m,
-                        )
-                      }
-                    />
-
-                    <div className="text-xs text-gray-500 mb-1">
-                      Время заезда {!formData.check_in_time && "—"}
-                    </div>
-                    <input
-                      type="time"
-                      className="border p-1 w-full mb-2"
-                      value={formData.check_in_time || ""}
-                      onChange={(e) =>
-                        setFormData({ ...formData, check_in_time: e.target.value })
-                      }
-                    />
-
-                    <div className="text-sm font-medium mb-1">
-                      {formatDateRU(bookingModal.end)}
-                    </div>
-                    <input
-                      type="date"
-                      className="border p-1 w-full mb-2 text-gray-500 text-xs"
-                      value={bookingModal.end}
-                      onChange={(e) =>
-                        setBookingModal((m) =>
-                          m ? { ...m, end: e.target.value } : m,
-                        )
-                      }
-                    />
-
-                    <div className="text-xs text-gray-500 mb-1">
-                      Время выезда {!formData.check_out_time && "—"}
-                    </div>
-                    <input
-                      type="time"
-                      className="border p-1 w-full mb-2"
-                      value={formData.check_out_time || ""}
-                      onChange={(e) =>
-                        setFormData({ ...formData, check_out_time: e.target.value })
-                      }
-                    />
-
-                    <input
-                      placeholder="Имя гостя"
-                      className="border p-1 w-full mb-2"
-                      value={formData.guest_name}
-                      onChange={(e) =>
-                        setFormData({ ...formData, guest_name: e.target.value })
-                      }
-                    />
-
-                    <input
-                      placeholder="Сумма"
-                      className="border p-1 w-full mb-2"
-                      value={formData.total_price}
-                      onChange={(e) =>
-                        setFormData({ ...formData, total_price: e.target.value })
-                      }
-                    />
-
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button onClick={() => setBookingModal(null)}>Отмена</button>
-                      {bookingModal.bookingId != null && (
-                        <button
-                          type="button"
-                          className="text-red-600 px-2 py-1"
-                          onClick={() => {
-                            const id = bookingModal.bookingId;
-                            if (id == null) return;
-                            fetch(
-                              `http://localhost:8000/api/bookings/${id}/cancel`,
-                              { method: "PATCH" },
-                            )
-                              .then((res) => {
-                                if (!res.ok) throw new Error(String(res.status));
-                                return fetch(
-                                  "http://localhost:8000/api/bookings/",
-                                ).then((r) => {
-                                  if (!r.ok) throw new Error(String(r.status));
-                                  return r.json();
-                                });
-                              })
-                              .then(setBookings)
-                              .then(() => {
-                                setBookingModal(null);
-                                setSelection(null);
-                              })
-                              .catch(console.error);
-                          }}
-                        >
-                          Отменить бронь
-                        </button>
-                      )}
-                      <button
-                        className="bg-blue-500 text-white px-2 py-1 rounded"
-                        onClick={() => {
-                          const payload = {
-                            check_in_date: bookingModal.start,
-                            check_out_date: bookingModal.end,
-                            guest_name: formData.guest_name,
-                            total_price: Number(formData.total_price || 0),
-                            currency: "RUB",
-                            check_in_time: formData.check_in_time.trim()
-                              ? formData.check_in_time
-                              : null,
-                            check_out_time: formData.check_out_time.trim()
-                              ? formData.check_out_time
-                              : null,
-                          };
-                          const isEdit = bookingModal.bookingId != null;
-                          const url = isEdit
-                            ? `http://localhost:8000/api/bookings/${bookingModal.bookingId}`
-                            : "http://localhost:8000/api/bookings/";
-                          const method = isEdit ? "PATCH" : "POST";
-                          const body = isEdit
-                            ? JSON.stringify(payload)
-                            : JSON.stringify({
-                                apartment_id: bookingModal.apartmentId,
-                                ...payload,
-                              });
-                          fetch(url, {
-                            method,
-                            headers: { "Content-Type": "application/json" },
-                            body,
-                          })
-                            .then((res) => {
-                              if (!res.ok) throw new Error(String(res.status));
-                              return res.json();
-                            })
-                            .then(() =>
-                              fetch("http://localhost:8000/api/bookings/").then(
-                                (r) => {
-                                  if (!r.ok) throw new Error(String(r.status));
-                                  return r.json();
-                                },
-                              ),
-                            )
-                            .then(setBookings)
-                            .then(() => {
-                              setBookingModal(null);
-                              setSelection(null);
-                            })
-                            .catch(console.error);
-                        }}
-                      >
-                        {bookingModal.bookingId != null ? "Сохранить" : "Создать"}
-                      </button>
-                    </div>
-                  </div>
                 </div>
               )}
             </>
@@ -1231,7 +1124,11 @@ export default function App() {
                     </thead>
                     <tbody>
                       {sortedBookings.map((b) => (
-                        <tr key={b.id} className="border-b border-gray-100">
+                        <tr
+                          key={b.id}
+                          className="border-b border-gray-100 cursor-pointer hover:bg-gray-50"
+                          onClick={() => openBookingModalForEdit(b)}
+                        >
                           <td className="py-2 pr-3 whitespace-nowrap">
                             {b.check_in_date}
                           </td>
@@ -1289,6 +1186,181 @@ export default function App() {
                 />
               )}
             </>
+          )}
+
+          {bookingModal && (
+            <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl p-4 w-[300px]">
+                <div className="font-semibold mb-2">
+                  {bookingModal.bookingId != null
+                    ? "Редактировать бронь"
+                    : "Создать бронь"}
+                </div>
+
+                <div className="text-sm mb-2">
+                  {formatBookingRange(bookingModal.start, bookingModal.end)}
+                </div>
+
+                <div className="text-sm font-medium mb-1">
+                  {formatDateRU(bookingModal.start)}
+                </div>
+                <input
+                  type="date"
+                  className="border p-1 w-full mb-2 text-gray-500 text-xs"
+                  value={bookingModal.start}
+                  onChange={(e) =>
+                    setBookingModal((m) =>
+                      m ? { ...m, start: e.target.value } : m,
+                    )
+                  }
+                />
+
+                <div className="text-xs text-gray-500 mb-1">
+                  Время заезда {!formData.check_in_time && "—"}
+                </div>
+                <input
+                  type="time"
+                  className="border p-1 w-full mb-2"
+                  value={formData.check_in_time || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, check_in_time: e.target.value })
+                  }
+                />
+
+                <div className="text-sm font-medium mb-1">
+                  {formatDateRU(bookingModal.end)}
+                </div>
+                <input
+                  type="date"
+                  className="border p-1 w-full mb-2 text-gray-500 text-xs"
+                  value={bookingModal.end}
+                  onChange={(e) =>
+                    setBookingModal((m) =>
+                      m ? { ...m, end: e.target.value } : m,
+                    )
+                  }
+                />
+
+                <div className="text-xs text-gray-500 mb-1">
+                  Время выезда {!formData.check_out_time && "—"}
+                </div>
+                <input
+                  type="time"
+                  className="border p-1 w-full mb-2"
+                  value={formData.check_out_time || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, check_out_time: e.target.value })
+                  }
+                />
+
+                <input
+                  placeholder="Имя гостя"
+                  className="border p-1 w-full mb-2"
+                  value={formData.guest_name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, guest_name: e.target.value })
+                  }
+                />
+
+                <input
+                  placeholder="Сумма"
+                  className="border p-1 w-full mb-2"
+                  value={formData.total_price}
+                  onChange={(e) =>
+                    setFormData({ ...formData, total_price: e.target.value })
+                  }
+                />
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button onClick={() => setBookingModal(null)}>Отмена</button>
+                  {bookingModal.bookingId != null && (
+                    <button
+                      type="button"
+                      className="text-red-600 px-2 py-1"
+                      onClick={() => {
+                        const id = bookingModal.bookingId;
+                        if (id == null) return;
+                        fetch(
+                          `http://localhost:8000/api/bookings/${id}/cancel`,
+                          { method: "PATCH" },
+                        )
+                          .then((res) => {
+                            if (!res.ok) throw new Error(String(res.status));
+                            return fetch(
+                              "http://localhost:8000/api/bookings/",
+                            ).then((r) => {
+                              if (!r.ok) throw new Error(String(r.status));
+                              return r.json();
+                            });
+                          })
+                          .then(setBookings)
+                          .then(() => {
+                            setBookingModal(null);
+                            setSelection(null);
+                          })
+                          .catch(console.error);
+                      }}
+                    >
+                      Отменить бронь
+                    </button>
+                  )}
+                  <button
+                    className="bg-blue-500 text-white px-2 py-1 rounded"
+                    onClick={() => {
+                      const payload = {
+                        check_in_date: bookingModal.start,
+                        check_out_date: bookingModal.end,
+                        guest_name: formData.guest_name,
+                        total_price: Number(formData.total_price || 0),
+                        currency: "RUB",
+                        check_in_time: formData.check_in_time.trim()
+                          ? formData.check_in_time
+                          : null,
+                        check_out_time: formData.check_out_time.trim()
+                          ? formData.check_out_time
+                          : null,
+                      };
+                      const isEdit = bookingModal.bookingId != null;
+                      const url = isEdit
+                        ? `http://localhost:8000/api/bookings/${bookingModal.bookingId}`
+                        : "http://localhost:8000/api/bookings/";
+                      const method = isEdit ? "PATCH" : "POST";
+                      const body = isEdit
+                        ? JSON.stringify(payload)
+                        : JSON.stringify({
+                            apartment_id: bookingModal.apartmentId,
+                            ...payload,
+                          });
+                      fetch(url, {
+                        method,
+                        headers: { "Content-Type": "application/json" },
+                        body,
+                      })
+                        .then((res) => {
+                          if (!res.ok) throw new Error(String(res.status));
+                          return res.json();
+                        })
+                        .then(() =>
+                          fetch("http://localhost:8000/api/bookings/").then(
+                            (r) => {
+                              if (!r.ok) throw new Error(String(r.status));
+                              return r.json();
+                            },
+                          ),
+                        )
+                        .then(setBookings)
+                        .then(() => {
+                          setBookingModal(null);
+                          setSelection(null);
+                        })
+                        .catch(console.error);
+                    }}
+                  >
+                    {bookingModal.bookingId != null ? "Сохранить" : "Создать"}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
