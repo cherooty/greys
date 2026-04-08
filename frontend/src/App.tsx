@@ -250,6 +250,29 @@ export default function App() {
 
   const popupRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const calendarAreaRef = useRef<HTMLDivElement | null>(null);
+
+  function openBookingModalFromSelection(apartmentId: number) {
+    if (!selection) return;
+    if (selection.apartmentId !== apartmentId) return;
+    const start =
+      selection.start < selection.end ? selection.start : selection.end;
+    const lastStay =
+      selection.start > selection.end ? selection.start : selection.end;
+    const checkOut = isoAddDays(lastStay, 1);
+    setBookingModal({
+      apartmentId,
+      start,
+      end: checkOut,
+    });
+    setFormData({
+      guest_name: "",
+      total_price: "",
+      check_in_time: "",
+      check_out_time: "",
+    });
+    setContextMenu(null);
+  }
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
@@ -409,6 +432,22 @@ export default function App() {
     };
   }, [contextMenu]);
 
+  useEffect(() => {
+    function handleDocMouseDown(event: MouseEvent) {
+      if (bookingModal) return;
+      const t = event.target as Node;
+      if (calendarAreaRef.current?.contains(t)) return;
+      if (popupRef.current?.contains(t)) return;
+      if (contextMenuRef.current?.contains(t)) return;
+      setSelection(null);
+    }
+
+    document.addEventListener("mousedown", handleDocMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocMouseDown);
+    };
+  }, [bookingModal]);
+
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
 
@@ -550,6 +589,10 @@ export default function App() {
               ) : (
                 apartments &&
                 bookings && (
+                  <div
+                    ref={calendarAreaRef}
+                    className="relative flex-1 min-h-0 flex flex-col w-full"
+                  >
                   <div className="bg-white rounded-xl shadow p-4 flex-1 min-h-[12rem] min-w-0 flex flex-col max-h-[calc(100vh-10rem)]">
                     <div className="overflow-auto flex-1 min-h-0 -mx-1 px-1">
                       <div
@@ -704,8 +747,11 @@ export default function App() {
                                           }
                                           onMouseDown={(e) => {
                                             if (e.button !== 0) return;
+                                            if (isBooked) return;
 
                                             if (e.ctrlKey && selection) {
+                                              if (selection.apartmentId !== apt.id)
+                                                return;
                                               setSelection({
                                                 ...selection,
                                                 end: day,
@@ -720,6 +766,29 @@ export default function App() {
                                               isInSelection(day, apt.id)
                                             ) {
                                               setSelection(null);
+                                              return;
+                                            }
+
+                                            if (
+                                              selection &&
+                                              selection.apartmentId === apt.id &&
+                                              selection.start === selection.end &&
+                                              day !== selection.start &&
+                                              !e.ctrlKey
+                                            ) {
+                                              const lo =
+                                                selection.start < day
+                                                  ? selection.start
+                                                  : day;
+                                              const hi =
+                                                selection.start < day
+                                                  ? day
+                                                  : selection.start;
+                                              setSelection({
+                                                apartmentId: apt.id,
+                                                start: lo,
+                                                end: hi,
+                                              });
                                               return;
                                             }
 
@@ -761,6 +830,7 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  </div>
                 )
               )}
               {popup && (
@@ -791,36 +861,13 @@ export default function App() {
                     top: contextMenu.y,
                   }}
                 >
-                  {!contextMenu.isBooked && selection && (
+                  {!contextMenu.isBooked &&
+                    selection &&
+                    selection.apartmentId === contextMenu.apartmentId && (
                     <div
                       className="px-3 py-1 hover:bg-gray-100 cursor-pointer"
                       onClick={() => {
-                        if (!selection) return;
-
-                        const start =
-                          selection.start < selection.end
-                            ? selection.start
-                            : selection.end;
-                        const lastStay =
-                          selection.start > selection.end
-                            ? selection.start
-                            : selection.end;
-                        const checkOut = isoAddDays(lastStay, 1);
-
-                        setBookingModal({
-                          apartmentId: contextMenu.apartmentId,
-                          start,
-                          end: checkOut,
-                        });
-
-                        setFormData({
-                          guest_name: "",
-                          total_price: "",
-                          check_in_time: "",
-                          check_out_time: "",
-                        });
-
-                        setContextMenu(null);
+                        openBookingModalFromSelection(contextMenu.apartmentId);
                       }}
                     >
                       Создать бронь
@@ -960,15 +1007,24 @@ export default function App() {
                               currency: "RUB",
                             }),
                           })
-                            .then((res) => res.json())
-                            .then((newBooking) => {
-                              setBookings((prev) => [
-                                ...(prev ?? []),
-                                newBooking,
-                              ]);
+                            .then((res) => {
+                              if (!res.ok) throw new Error(String(res.status));
+                              return res.json();
+                            })
+                            .then(() =>
+                              fetch("http://localhost:8000/api/bookings/").then(
+                                (r) => {
+                                  if (!r.ok) throw new Error(String(r.status));
+                                  return r.json();
+                                },
+                              ),
+                            )
+                            .then(setBookings)
+                            .then(() => {
                               setBookingModal(null);
                               setSelection(null);
-                            });
+                            })
+                            .catch(console.error);
                         }}
                       >
                         Создать
