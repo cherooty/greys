@@ -9,6 +9,10 @@ type Booking = {
   check_out_date: string;
   guest_name?: string;
   total_price?: number;
+  currency?: string;
+  status?: string;
+  check_in_time?: string | null;
+  check_out_time?: string | null;
 };
 
 type EventItem = {
@@ -236,6 +240,7 @@ export default function App() {
     apartmentId: number;
     start: string;
     end: string;
+    bookingId?: number;
   } | null>(null);
 
   const [formData, setFormData] = useState({
@@ -264,6 +269,7 @@ export default function App() {
       apartmentId,
       start,
       end: checkOut,
+      bookingId: undefined,
     });
     setFormData({
       guest_name: "",
@@ -736,7 +742,7 @@ export default function App() {
                                                   booking,
                                                   prevBooking,
                                                   nextBooking,
-                                                )
+                                                ) + " cursor-pointer"
                                               : bookingCellClasses(sem, apt.name)) +
                                             (!booking
                                               ? " cursor-pointer hover:border-blue-400"
@@ -809,6 +815,29 @@ export default function App() {
                                               apartmentId: apt.id,
                                               isBooked,
                                             });
+                                          }}
+                                          onClick={(e) => {
+                                            if (!booking) return;
+                                            e.stopPropagation();
+                                            setBookingModal({
+                                              bookingId: booking.id,
+                                              apartmentId: apt.id,
+                                              start: booking.check_in_date,
+                                              end: booking.check_out_date,
+                                            });
+                                            setFormData({
+                                              guest_name: booking.guest_name ?? "",
+                                              total_price:
+                                                booking.total_price != null
+                                                  ? String(booking.total_price)
+                                                  : "",
+                                              check_in_time:
+                                                booking.check_in_time ?? "",
+                                              check_out_time:
+                                                booking.check_out_time ?? "",
+                                            });
+                                            setSelection(null);
+                                            setContextMenu(null);
                                           }}
                                         >
                                           {isStart ? (
@@ -914,7 +943,11 @@ export default function App() {
               {bookingModal && (
                 <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
                   <div className="bg-white rounded-xl p-4 w-[300px]">
-                    <div className="font-semibold mb-2">Создать бронь</div>
+                    <div className="font-semibold mb-2">
+                      {bookingModal.bookingId != null
+                        ? "Редактировать бронь"
+                        : "Создать бронь"}
+                    </div>
 
                     <div className="text-sm mb-2">
                       {formatBookingRange(bookingModal.start, bookingModal.end)}
@@ -990,22 +1023,70 @@ export default function App() {
                       }
                     />
 
-                    <div className="flex justify-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <button onClick={() => setBookingModal(null)}>Отмена</button>
+                      {bookingModal.bookingId != null && (
+                        <button
+                          type="button"
+                          className="text-red-600 px-2 py-1"
+                          onClick={() => {
+                            const id = bookingModal.bookingId;
+                            if (id == null) return;
+                            fetch(
+                              `http://localhost:8000/api/bookings/${id}/cancel`,
+                              { method: "PATCH" },
+                            )
+                              .then((res) => {
+                                if (!res.ok) throw new Error(String(res.status));
+                                return fetch(
+                                  "http://localhost:8000/api/bookings/",
+                                ).then((r) => {
+                                  if (!r.ok) throw new Error(String(r.status));
+                                  return r.json();
+                                });
+                              })
+                              .then(setBookings)
+                              .then(() => {
+                                setBookingModal(null);
+                                setSelection(null);
+                              })
+                              .catch(console.error);
+                          }}
+                        >
+                          Отменить бронь
+                        </button>
+                      )}
                       <button
                         className="bg-blue-500 text-white px-2 py-1 rounded"
                         onClick={() => {
-                          fetch("http://localhost:8000/api/bookings/", {
-                            method: "POST",
+                          const payload = {
+                            check_in_date: bookingModal.start,
+                            check_out_date: bookingModal.end,
+                            guest_name: formData.guest_name,
+                            total_price: Number(formData.total_price || 0),
+                            currency: "RUB",
+                            check_in_time: formData.check_in_time.trim()
+                              ? formData.check_in_time
+                              : null,
+                            check_out_time: formData.check_out_time.trim()
+                              ? formData.check_out_time
+                              : null,
+                          };
+                          const isEdit = bookingModal.bookingId != null;
+                          const url = isEdit
+                            ? `http://localhost:8000/api/bookings/${bookingModal.bookingId}`
+                            : "http://localhost:8000/api/bookings/";
+                          const method = isEdit ? "PATCH" : "POST";
+                          const body = isEdit
+                            ? JSON.stringify(payload)
+                            : JSON.stringify({
+                                apartment_id: bookingModal.apartmentId,
+                                ...payload,
+                              });
+                          fetch(url, {
+                            method,
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              apartment_id: bookingModal.apartmentId,
-                              guest_name: formData.guest_name,
-                              check_in_date: bookingModal.start,
-                              check_out_date: bookingModal.end,
-                              total_price: Number(formData.total_price || 0),
-                              currency: "RUB",
-                            }),
+                            body,
                           })
                             .then((res) => {
                               if (!res.ok) throw new Error(String(res.status));
@@ -1027,7 +1108,7 @@ export default function App() {
                             .catch(console.error);
                         }}
                       >
-                        Создать
+                        {bookingModal.bookingId != null ? "Сохранить" : "Создать"}
                       </button>
                     </div>
                   </div>

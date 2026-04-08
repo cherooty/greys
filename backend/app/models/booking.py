@@ -23,6 +23,8 @@ class Booking(Base):
 
     check_in_date = Column(Date, nullable=False)
     check_out_date = Column(Date, nullable=False)
+    check_in_time = Column(String, nullable=True)
+    check_out_time = Column(String, nullable=True)
 
     total_price = Column(Float, nullable=False)
     currency = Column(String, nullable=False, default="RUB")

@@ -9,6 +9,8 @@ class BookingBase(BaseModel):
     guest_contact: str | None = None
     check_in_date: date
     check_out_date: date
+    check_in_time: str | None = None
+    check_out_time: str | None = None
     total_price: float
     currency: str = "RUB"
     status: str = "confirmed"
@@ -25,6 +27,11 @@ class BookingCreate(BookingBase):
 class BookingUpdate(BaseModel):
     check_in_date: date
     check_out_date: date
+    guest_name: str
+    total_price: float
+    currency: str = "RUB"
+    check_in_time: str | None = None
+    check_out_time: str | None = None
 
 
 class BookingResponse(BookingBase):
