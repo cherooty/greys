@@ -13,6 +13,7 @@ type Booking = {
   status?: string;
   check_in_time?: string | null;
   check_out_time?: string | null;
+  notes?: string | null;
 };
 
 type EventItem = {
@@ -119,13 +120,9 @@ function bookingCurrencySymbol(currency: string | undefined): string {
   return "₽";
 }
 
-function bookingStayLastNightIso(b: Booking): string {
-  return isoAddDays(b.check_out_date, -1);
-}
-
 function bookingDateRangeCompact(b: Booking): string {
   const inD = new Date(b.check_in_date + "T12:00:00");
-  const last = new Date(bookingStayLastNightIso(b) + "T12:00:00");
+  const last = new Date(b.check_out_date + "T12:00:00");
   const d1 = inD.getDate();
   const d2 = last.getDate();
   const m1 = inD.getMonth();
@@ -164,6 +161,12 @@ function bookingBlockLine2(b: Booking): string | null {
   }
   if (chunks.length === 0) return null;
   return chunks.join(" · ");
+}
+
+function bookingNightCountForModal(startIso: string, endIso: string): number {
+  const a = new Date(startIso + "T12:00:00");
+  const b = new Date(endIso + "T12:00:00");
+  return Math.max(0, Math.round((b.getTime() - a.getTime()) / 86400000));
 }
 
 function localTodayKey(): string {
@@ -302,6 +305,7 @@ export default function App() {
     total_price: "",
     check_in_time: "",
     check_out_time: "",
+    notes: "",
   });
 
   const [sortField, setSortField] = useState<string>("check_in_date");
@@ -330,6 +334,7 @@ export default function App() {
       total_price: "",
       check_in_time: "",
       check_out_time: "",
+      notes: "",
     });
     setContextMenu(null);
   }
@@ -346,6 +351,7 @@ export default function App() {
       total_price: b.total_price != null ? String(b.total_price) : "",
       check_in_time: b.check_in_time ?? "",
       check_out_time: b.check_out_time ?? "",
+      notes: b.notes ?? "",
     });
     setSelection(null);
     setContextMenu(null);
@@ -1189,94 +1195,229 @@ export default function App() {
           )}
 
           {bookingModal && (
-            <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-              <div className="bg-white rounded-xl p-4 w-[300px]">
-                <div className="font-semibold mb-2">
-                  {bookingModal.bookingId != null
-                    ? "Редактировать бронь"
-                    : "Создать бронь"}
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+              <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+                <div className="mb-5 border-b border-gray-200 pb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    {bookingModal.bookingId != null
+                      ? "Редактировать бронь"
+                      : "Создать бронь"}
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {formatBookingRange(bookingModal.start, bookingModal.end)}
+                  </p>
                 </div>
 
-                <div className="text-sm mb-2">
-                  {formatBookingRange(bookingModal.start, bookingModal.end)}
+                <div className="space-y-4">
+                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
+                    <h3 className="text-sm font-bold text-gray-800">
+                      📅 Даты
+                    </h3>
+                    <div className="space-y-3">
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-600">
+                          Заезд
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <input
+                            type="date"
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
+                            value={bookingModal.start}
+                            onChange={(e) =>
+                              setBookingModal((m) =>
+                                m ? { ...m, start: e.target.value } : m,
+                              )
+                            }
+                          />
+                          <input
+                            type="time"
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            value={formData.check_in_time || ""}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                check_in_time: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-600">
+                          Выезд
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <input
+                            type="date"
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
+                            value={bookingModal.end}
+                            onChange={(e) =>
+                              setBookingModal((m) =>
+                                m ? { ...m, end: e.target.value } : m,
+                              )
+                            }
+                          />
+                          <input
+                            type="time"
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            value={formData.check_out_time || ""}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                check_out_time: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <details className="text-sm">
+                        <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900">
+                          Комментарий к датам
+                        </summary>
+                        <textarea
+                          rows={2}
+                          readOnly
+                          className="mt-2 w-full resize-none rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                          placeholder="—"
+                          value=""
+                        />
+                      </details>
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
+                    <h3 className="text-sm font-bold text-gray-800">
+                      👤 Гости
+                    </h3>
+                    <div className="space-y-2">
+                      <input
+                        placeholder="ФИО гостя"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                        value={formData.guest_name}
+                        onChange={(e) =>
+                          setFormData({ ...formData, guest_name: e.target.value })
+                        }
+                      />
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="Кол-во гостей"
+                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                        disabled
+                        readOnly
+                        value=""
+                      />
+                      <input
+                        type="tel"
+                        placeholder="Телефон"
+                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                        disabled
+                        readOnly
+                        value=""
+                      />
+                      <input
+                        placeholder="Мессенджер"
+                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                        disabled
+                        readOnly
+                        value=""
+                      />
+                      <input
+                        placeholder="Источник"
+                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                        disabled
+                        readOnly
+                        value=""
+                      />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
+                    <h3 className="text-sm font-bold text-gray-800">
+                      💰 Финансы
+                    </h3>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-600">
+                          Цена для гостя
+                        </div>
+                        <input
+                          placeholder="Сумма"
+                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          value={formData.total_price}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              total_price: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <input
+                        placeholder="Мои деньги"
+                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                        disabled
+                        readOnly
+                        value=""
+                      />
+                      <input
+                        placeholder="Комиссия"
+                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                        disabled
+                        readOnly
+                        value=""
+                      />
+                      <p className="text-xs text-gray-500">
+                        {(() => {
+                          const nights = bookingNightCountForModal(
+                            bookingModal.start,
+                            bookingModal.end,
+                          );
+                          const total = Number(formData.total_price || 0);
+                          const per =
+                            nights > 0 && total > 0
+                              ? (total / nights).toFixed(0)
+                              : null;
+                          return nights > 0
+                            ? `Ночей: ${nights}${
+                                per != null
+                                  ? ` · ~${per} ₽ / ночь (оценка по сумме)`
+                                  : ""
+                              }`
+                            : "Укажите даты заезда и выезда для оценки.";
+                        })()}
+                      </p>
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
+                    <h3 className="text-sm font-bold text-gray-800">
+                      📝 Комментарий
+                    </h3>
+                    <textarea
+                      rows={5}
+                      className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
+                      placeholder="Комментарий"
+                      value={formData.notes}
+                      onChange={(e) =>
+                        setFormData({ ...formData, notes: e.target.value })
+                      }
+                    />
+                  </section>
                 </div>
 
-                <div className="text-sm font-medium mb-1">
-                  {formatDateRU(bookingModal.start)}
-                </div>
-                <input
-                  type="date"
-                  className="border p-1 w-full mb-2 text-gray-500 text-xs"
-                  value={bookingModal.start}
-                  onChange={(e) =>
-                    setBookingModal((m) =>
-                      m ? { ...m, start: e.target.value } : m,
-                    )
-                  }
-                />
-
-                <div className="text-xs text-gray-500 mb-1">
-                  Время заезда {!formData.check_in_time && "—"}
-                </div>
-                <input
-                  type="time"
-                  className="border p-1 w-full mb-2"
-                  value={formData.check_in_time || ""}
-                  onChange={(e) =>
-                    setFormData({ ...formData, check_in_time: e.target.value })
-                  }
-                />
-
-                <div className="text-sm font-medium mb-1">
-                  {formatDateRU(bookingModal.end)}
-                </div>
-                <input
-                  type="date"
-                  className="border p-1 w-full mb-2 text-gray-500 text-xs"
-                  value={bookingModal.end}
-                  onChange={(e) =>
-                    setBookingModal((m) =>
-                      m ? { ...m, end: e.target.value } : m,
-                    )
-                  }
-                />
-
-                <div className="text-xs text-gray-500 mb-1">
-                  Время выезда {!formData.check_out_time && "—"}
-                </div>
-                <input
-                  type="time"
-                  className="border p-1 w-full mb-2"
-                  value={formData.check_out_time || ""}
-                  onChange={(e) =>
-                    setFormData({ ...formData, check_out_time: e.target.value })
-                  }
-                />
-
-                <input
-                  placeholder="Имя гостя"
-                  className="border p-1 w-full mb-2"
-                  value={formData.guest_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, guest_name: e.target.value })
-                  }
-                />
-
-                <input
-                  placeholder="Сумма"
-                  className="border p-1 w-full mb-2"
-                  value={formData.total_price}
-                  onChange={(e) =>
-                    setFormData({ ...formData, total_price: e.target.value })
-                  }
-                />
-
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button onClick={() => setBookingModal(null)}>Отмена</button>
+                <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 pt-4">
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    onClick={() => setBookingModal(null)}
+                  >
+                    Отмена
+                  </button>
                   {bookingModal.bookingId != null && (
                     <button
                       type="button"
-                      className="text-red-600 px-2 py-1"
+                      className="rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                       onClick={() => {
                         const id = bookingModal.bookingId;
                         if (id == null) return;
@@ -1305,7 +1446,8 @@ export default function App() {
                     </button>
                   )}
                   <button
-                    className="bg-blue-500 text-white px-2 py-1 rounded"
+                    type="button"
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                     onClick={() => {
                       const payload = {
                         check_in_date: bookingModal.start,
@@ -1318,6 +1460,9 @@ export default function App() {
                           : null,
                         check_out_time: formData.check_out_time.trim()
                           ? formData.check_out_time
+                          : null,
+                        notes: formData.notes.trim()
+                          ? formData.notes
                           : null,
                       };
                       const isEdit = bookingModal.bookingId != null;
