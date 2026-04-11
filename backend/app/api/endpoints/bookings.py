@@ -118,6 +118,8 @@ def update_booking_dates(
     booking.currency = body.currency
     booking.check_in_time = body.check_in_time
     booking.check_out_time = body.check_out_time
+    booking.notes = body.notes
+    booking.source = body.source
     db.commit()
     db.refresh(booking)
     return booking

@@ -9,11 +9,14 @@ type Booking = {
   check_out_date: string;
   guest_name?: string;
   total_price?: number;
+  owner_price?: number | null;
+  guests_count?: number | null;
   currency?: string;
   status?: string;
   check_in_time?: string | null;
   check_out_time?: string | null;
   notes?: string | null;
+  source?: string;
 };
 
 type EventItem = {
@@ -21,6 +24,13 @@ type EventItem = {
   date: string;
   title: string;
   type: "holiday" | "city";
+};
+
+type BookingsResizableKey = "guest" | "comment";
+
+const BOOKINGS_COL_MIN: Record<BookingsResizableKey, number> = {
+  guest: 140,
+  comment: 120,
 };
 
 const events: EventItem[] = [
@@ -64,6 +74,33 @@ const apartmentColors: Record<string, string> = {
   Блюз: "bg-sky-50",
   Маки: "bg-purple-50",
 };
+
+const SOURCES = {
+  manual: { id: "manual", label: "Вручную", color: "bg-green-200" },
+  avito: { id: "avito", label: "Авито", color: "bg-red-200" },
+  sutochno: { id: "sutochno", label: "Суточно", color: "bg-purple-200" },
+  cian: { id: "cian", label: "ЦИАН", color: "bg-sky-200" },
+  yandex: { id: "yandex", label: "Яндекс.Путешествия", color: "bg-yellow-200" },
+} as const;
+
+function bookingCellSourceColorClasses(source: string | undefined): string {
+  const key =
+    source != null && source in SOURCES
+      ? (source as keyof typeof SOURCES)
+      : "manual";
+  const c = SOURCES[key]?.color ?? SOURCES.manual.color;
+  const hover =
+    key === "avito"
+      ? "hover:bg-red-300"
+      : key === "sutochno"
+        ? "hover:bg-purple-300"
+        : key === "cian"
+          ? "hover:bg-sky-300"
+          : key === "yandex"
+            ? "hover:bg-yellow-300"
+            : "hover:bg-green-300";
+  return `${c} ${hover}`;
+}
 
 function formatDay(dateStr: string): string {
   const parts = dateStr.split("-");
@@ -111,6 +148,34 @@ function formatBookingRange(start: string, end: string) {
     `${d.getDate()} ${d.toLocaleString("ru-RU", { month: "short" })} ${d.getFullYear()}`;
 
   return `${format(s)} — ${format(e)}`;
+}
+
+function formatBookingTableDayTime(
+  isoDate: string,
+  time: string | null | undefined,
+): React.ReactNode {
+  const day = formatDay(isoDate);
+  const raw = (time ?? "").trim();
+  let hm: string | null = null;
+  if (raw) {
+    const m = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (m) hm = `${m[1].padStart(2, "0")}:${m[2]}`;
+  }
+  return (
+    <div className="flex flex-col leading-tight">
+      <div className="whitespace-nowrap">{day}</div>
+      <div className="whitespace-nowrap text-[10px] text-gray-500">
+        {hm != null ? hm : "—"}
+      </div>
+    </div>
+  );
+}
+
+function bookingTableSourceKey(source: string | undefined): keyof typeof SOURCES {
+  if (source != null && source in SOURCES) {
+    return source as keyof typeof SOURCES;
+  }
+  return "manual";
 }
 
 function bookingCurrencySymbol(currency: string | undefined): string {
@@ -225,7 +290,9 @@ function bookedRangeCellClasses(
   const sameNext = nextBooking && nextBooking.id === booking.id;
 
   let s =
-    "h-8 bg-green-500 hover:bg-green-600 text-white text-[10px] flex flex-col items-center justify-center gap-0 px-0.5 min-w-0 overflow-hidden shadow-sm leading-tight ";
+    "h-8 " +
+    bookingCellSourceColorClasses(booking.source) +
+    " text-gray-900 text-[10px] flex flex-col items-center justify-center gap-0 px-0.5 min-w-0 overflow-hidden shadow-sm leading-tight ";
 
   if (!samePrev) s += "border-t border-gray-200 ";
   if (!sameNext) s += "border-b border-gray-200 ";
@@ -266,7 +333,7 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [activeTab, setActiveTab] = useState<
-    "calendar" | "apartments" | "events" | "bookings"
+    "calendar" | "apartments" | "events" | "bookings" | "sources"
   >("calendar");
 
   const [enabledEvents, setEnabledEvents] = useState<Record<string, boolean>>(
@@ -306,10 +373,32 @@ export default function App() {
     check_in_time: "",
     check_out_time: "",
     notes: "",
+    source: "manual",
   });
 
   const [sortField, setSortField] = useState<string>("check_in_date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  const [bookingsColumnWidths, setBookingsColumnWidths] = useState({
+    guest: 280,
+    price: 112,
+    ownerPrice: 112,
+    comment: 360,
+  });
+
+  // Note:
+  // "guest" is resizable; width comes from state from the start.
+  // "comment" starts flexible (w-full) and becomes fixed after the first resize.
+  // "price" / "ownerPrice" use state width only; they are not resizable.
+  const [bookingsColManual, setBookingsColManual] = useState<
+    Record<BookingsResizableKey, boolean>
+  >({ guest: true, comment: false });
+
+  const [bookingsColumnResize, setBookingsColumnResize] = useState<{
+    key: BookingsResizableKey;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
   const popupRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -335,6 +424,7 @@ export default function App() {
       check_in_time: "",
       check_out_time: "",
       notes: "",
+      source: "manual",
     });
     setContextMenu(null);
   }
@@ -352,6 +442,10 @@ export default function App() {
       check_in_time: b.check_in_time ?? "",
       check_out_time: b.check_out_time ?? "",
       notes: b.notes ?? "",
+      source:
+        b.source != null && b.source in SOURCES
+          ? b.source
+          : "manual",
     });
     setSelection(null);
     setContextMenu(null);
@@ -433,11 +527,17 @@ export default function App() {
         case "total_price":
           cmp = (a.total_price ?? 0) - (b.total_price ?? 0);
           break;
-        case "source":
         case "guests_count":
+          cmp = (a.guests_count ?? 0) - (b.guests_count ?? 0);
+          break;
         case "owner_price":
+          cmp = (a.owner_price ?? 0) - (b.owner_price ?? 0);
+          break;
+        case "source":
+          cmp = (a.source ?? "").localeCompare(b.source ?? "");
+          break;
         case "comment":
-          cmp = 0;
+          cmp = (a.notes ?? "").localeCompare(b.notes ?? "");
           break;
         default:
           cmp = a.check_in_date.localeCompare(b.check_in_date);
@@ -461,6 +561,55 @@ export default function App() {
   function sortHeaderArrow(field: string) {
     if (sortField !== field) return "";
     return sortDirection === "asc" ? " ↑" : " ↓";
+  }
+
+  useEffect(() => {
+    if (!bookingsColumnResize) return undefined;
+    const { key, startX, startWidth } = bookingsColumnResize;
+    const min = BOOKINGS_COL_MIN[key];
+
+    function onMove(e: MouseEvent) {
+      e.preventDefault();
+      const w = Math.max(min, startWidth + e.clientX - startX);
+      setBookingsColumnWidths((prev) => ({ ...prev, [key]: w }));
+    }
+
+    function onUp() {
+      setBookingsColumnResize(null);
+    }
+
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [bookingsColumnResize]);
+
+  function beginBookingsColResize(
+    e: React.MouseEvent,
+    key: BookingsResizableKey,
+    width: number,
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    let startWidth = width;
+    if (key === "comment" && !bookingsColManual.comment) {
+      const th = (e.currentTarget as HTMLElement).closest("th");
+      startWidth = Math.max(
+        BOOKINGS_COL_MIN.comment,
+        Math.round(th?.getBoundingClientRect().width ?? width),
+      );
+      setBookingsColManual((p) => ({ ...p, comment: true }));
+      setBookingsColumnWidths((prev) => ({ ...prev, comment: startWidth }));
+    }
+    setBookingsColumnResize({ key, startX: e.clientX, startWidth });
   }
 
   useEffect(() => {
@@ -606,6 +755,7 @@ export default function App() {
         check_out_date: checkOut,
         total_price: 0,
         currency: "RUB",
+        source: "manual",
       }),
     })
       .then((res) => res.json())
@@ -661,10 +811,20 @@ export default function App() {
         >
           Бронирования
         </div>
+
+        <div
+          className={
+            "cursor-pointer p-2 rounded " +
+            (activeTab === "sources" ? "bg-gray-200" : "")
+          }
+          onClick={() => setActiveTab("sources")}
+        >
+          Источники
+        </div>
       </div>
 
-      <div className="flex-1 p-6 min-h-0 flex flex-col">
-        <div className="max-w-2xl mx-auto min-h-0 flex flex-col flex-1 w-full">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col p-6">
+        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
           {activeTab === "calendar" && (
             <>
               {bookings === null ? (
@@ -1016,6 +1176,28 @@ export default function App() {
             </>
           )}
 
+          {activeTab === "sources" && (
+            <>
+              <h2 className="text-xl font-semibold mb-4">Источники</h2>
+              <div className="bg-white rounded-xl shadow p-4 space-y-3 max-w-md">
+                {(Object.values(SOURCES) as (typeof SOURCES)[keyof typeof SOURCES][]).map(
+                  (s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-center gap-3 text-sm"
+                    >
+                      <span
+                        className={`h-8 w-8 shrink-0 rounded-lg ${s.color}`}
+                        aria-hidden
+                      />
+                      <span className="font-medium">{s.label}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            </>
+          )}
+
           {activeTab === "events" && (
             <>
               <h2 className="text-xl font-semibold mb-4">События</h2>
@@ -1065,96 +1247,213 @@ export default function App() {
           {activeTab === "bookings" && (
             <>
               <h2 className="text-xl font-semibold mb-4">Бронирования</h2>
-              <div className="bg-white rounded-xl shadow p-4 max-w-full overflow-x-auto">
+              <div className="w-full max-w-full overflow-x-auto rounded-xl bg-white p-4 shadow">
                 {bookings === null || sortedBookings === null ? (
                   <p>Loading...</p>
                 ) : (
-                  <table className="w-full text-sm border-collapse text-left">
+                  <table className="w-full table-fixed border-collapse text-left text-sm">
                     <thead>
                       <tr className="border-b border-gray-200">
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          className="w-[5rem] min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
                           onClick={() => handleBookingsSort("check_in_date")}
                         >
-                          check_in_date{sortHeaderArrow("check_in_date")}
+                          Заезд{sortHeaderArrow("check_in_date")}
                         </th>
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          className="w-[5rem] min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
                           onClick={() => handleBookingsSort("check_out_date")}
                         >
-                          check_out_date{sortHeaderArrow("check_out_date")}
+                          Выезд{sortHeaderArrow("check_out_date")}
                         </th>
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          className="w-[10ch] min-w-0 max-w-[10ch] cursor-pointer truncate px-2 py-2 font-medium whitespace-nowrap"
                           onClick={() => handleBookingsSort("apartment")}
                         >
-                          apartment{sortHeaderArrow("apartment")}
+                          Студия{sortHeaderArrow("apartment")}
                         </th>
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
-                          onClick={() => handleBookingsSort("source")}
-                        >
-                          source{sortHeaderArrow("source")}
-                        </th>
-                        <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          className="relative min-w-0 cursor-pointer truncate px-2 py-2 font-medium"
+                          style={{
+                            width: bookingsColumnWidths.guest,
+                            minWidth: BOOKINGS_COL_MIN.guest,
+                          }}
                           onClick={() => handleBookingsSort("guest_name")}
                         >
-                          guest_name{sortHeaderArrow("guest_name")}
+                          Гость{sortHeaderArrow("guest_name")}
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label="Изменить ширину столбца «Гость»"
+                            className="absolute right-0 top-0 z-10 flex h-full w-2 translate-x-1/2 cursor-col-resize items-stretch justify-center border-0 bg-transparent p-0 hover:bg-gray-300/25"
+                            onMouseDown={(e) =>
+                              beginBookingsColResize(
+                                e,
+                                "guest",
+                                bookingsColumnWidths.guest,
+                              )
+                            }
+                          >
+                            <span className="pointer-events-none my-1 w-px shrink-0 bg-gray-300" />
+                          </button>
                         </th>
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
-                          onClick={() => handleBookingsSort("guests_count")}
+                          className="w-[13ch] min-w-[13ch] max-w-[13ch] cursor-pointer truncate px-2 py-2 font-medium whitespace-nowrap"
+                          onClick={() => handleBookingsSort("source")}
                         >
-                          guests_count{sortHeaderArrow("guests_count")}
+                          Источник{sortHeaderArrow("source")}
                         </th>
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
-                          onClick={() => handleBookingsSort("owner_price")}
-                        >
-                          owner_price{sortHeaderArrow("owner_price")}
-                        </th>
-                        <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          className="min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
+                          style={{
+                            width: "8ch",
+                            minWidth: "8ch",
+                          }}
                           onClick={() => handleBookingsSort("total_price")}
                         >
-                          total_price{sortHeaderArrow("total_price")}
+                          Цена{sortHeaderArrow("total_price")}
                         </th>
                         <th
-                          className="py-2 pr-3 cursor-pointer font-medium whitespace-nowrap"
+                          className="min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
+                          style={{
+                            width: "8ch",
+                            minWidth: "8ch",
+                          }}
+                          onClick={() => handleBookingsSort("owner_price")}
+                        >
+                          На руки{sortHeaderArrow("owner_price")}
+                        </th>
+                        <th
+                          className={
+                            "relative min-w-0 cursor-pointer px-2 py-2 text-left font-medium whitespace-nowrap" +
+                            (bookingsColManual.comment ? "" : " w-full")
+                          }
+                          style={
+                            bookingsColManual.comment
+                              ? {
+                                  width: bookingsColumnWidths.comment,
+                                  minWidth: BOOKINGS_COL_MIN.comment,
+                                }
+                              : undefined
+                          }
                           onClick={() => handleBookingsSort("comment")}
                         >
-                          comment{sortHeaderArrow("comment")}
+                          Коммент{sortHeaderArrow("comment")}
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label="Изменить ширину столбца «Коммент»"
+                            className="absolute right-0 top-0 z-10 flex h-full w-2 translate-x-1/2 cursor-col-resize items-stretch justify-center border-0 bg-transparent p-0 hover:bg-gray-300/25"
+                            onMouseDown={(e) =>
+                              beginBookingsColResize(
+                                e,
+                                "comment",
+                                bookingsColumnWidths.comment,
+                              )
+                            }
+                          >
+                            <span className="pointer-events-none my-1 w-px shrink-0 bg-gray-300" />
+                          </button>
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedBookings.map((b) => (
+                      {sortedBookings.map((b) => {
+                        const srcKey = bookingTableSourceKey(b.source);
+                        const src = SOURCES[srcKey];
+                        return (
                         <tr
                           key={b.id}
-                          className="border-b border-gray-100 cursor-pointer hover:bg-gray-50"
+                          className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
                           onClick={() => openBookingModalForEdit(b)}
                         >
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {b.check_in_date}
+                          <td className="w-[5rem] min-w-0 whitespace-nowrap px-2 py-2 align-top">
+                            {formatBookingTableDayTime(
+                              b.check_in_date,
+                              b.check_in_time,
+                            )}
                           </td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {b.check_out_date}
+                          <td className="w-[5rem] min-w-0 whitespace-nowrap px-2 py-2 align-top">
+                            {formatBookingTableDayTime(
+                              b.check_out_date,
+                              b.check_out_time,
+                            )}
                           </td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
+                          <td className="w-[10ch] min-w-0 max-w-[10ch] truncate whitespace-nowrap px-2 py-2 align-top">
                             {apartments?.find((a) => a.id === b.apartment_id)
                               ?.name ?? b.apartment_id}
                           </td>
-                          <td className="py-2 pr-3 text-gray-400">—</td>
-                          <td className="py-2 pr-3">{b.guest_name ?? "—"}</td>
-                          <td className="py-2 pr-3 text-gray-400">—</td>
-                          <td className="py-2 pr-3 text-gray-400">—</td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {b.total_price ?? "—"}
+                          <td
+                            className="min-w-0 truncate px-2 py-2 align-top"
+                            style={{
+                              width: bookingsColumnWidths.guest,
+                              minWidth: BOOKINGS_COL_MIN.guest,
+                            }}
+                          >
+                            <div className="flex min-w-0 flex-col leading-tight">
+                              <div className="truncate whitespace-nowrap">
+                                {b.guest_name?.trim() ? b.guest_name : "—"}
+                              </div>
+                              <div className="whitespace-nowrap text-[10px] text-gray-500">
+                                {b.guests_count != null
+                                  ? `${b.guests_count} гост.`
+                                  : "—"}
+                              </div>
+                            </div>
                           </td>
-                          <td className="py-2 pr-3 text-gray-400">—</td>
+                          <td className="w-[13ch] min-w-[13ch] max-w-[13ch] truncate px-2 py-2 align-top whitespace-nowrap">
+                            <span className="flex min-w-0 max-w-full items-center gap-2">
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${src.color}`}
+                                aria-hidden
+                              />
+                              <span className="min-w-0 truncate">
+                                {src.label}
+                              </span>
+                            </span>
+                          </td>
+                          <td
+                            className="min-w-0 px-2 py-2 align-top text-right tabular-nums whitespace-nowrap"
+                            style={{
+                              width: "8ch",
+                              minWidth: "8ch",
+                            }}
+                          >
+                            {b.total_price != null
+                              ? `${b.total_price} ${bookingCurrencySymbol(b.currency)}`
+                              : "—"}
+                          </td>
+                          <td
+                            className="min-w-0 px-2 py-2 align-top text-right tabular-nums whitespace-nowrap"
+                            style={{
+                              width: "8ch",
+                              minWidth: "8ch",
+                            }}
+                          >
+                            {b.owner_price != null
+                              ? `${b.owner_price} ${bookingCurrencySymbol(b.currency)}`
+                              : "—"}
+                          </td>
+                          <td
+                            className={
+                              "min-w-0 max-w-none truncate px-2 py-2 align-top text-gray-800" +
+                              (bookingsColManual.comment ? "" : " w-full")
+                            }
+                            style={
+                              bookingsColManual.comment
+                                ? {
+                                    width: bookingsColumnWidths.comment,
+                                    minWidth: BOOKINGS_COL_MIN.comment,
+                                  }
+                                : undefined
+                            }
+                            title={b.notes?.trim() ? b.notes : undefined}
+                          >
+                            {b.notes?.trim() ? b.notes : "—"}
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -1322,13 +1621,29 @@ export default function App() {
                         readOnly
                         value=""
                       />
-                      <input
-                        placeholder="Источник"
-                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                        disabled
-                        readOnly
-                        value=""
-                      />
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-600">
+                          Источник
+                        </div>
+                        <select
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                          value={formData.source}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              source: e.target.value,
+                            })
+                          }
+                        >
+                          {(
+                            Object.values(SOURCES) as (typeof SOURCES)[keyof typeof SOURCES][]
+                          ).map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </section>
 
@@ -1406,49 +1721,52 @@ export default function App() {
                   </section>
                 </div>
 
-                <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 pt-4">
-                  <button
-                    type="button"
-                    className="rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    onClick={() => setBookingModal(null)}
-                  >
-                    Отмена
-                  </button>
-                  {bookingModal.bookingId != null && (
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-4">
+                  <div>
+                    {bookingModal.bookingId != null && (
+                      <button
+                        type="button"
+                        className="rounded-lg bg-red-500 px-3 py-1 text-sm text-black hover:bg-red-600"
+                        onClick={() => {
+                          const id = bookingModal.bookingId;
+                          if (id == null) return;
+                          fetch(
+                            `http://localhost:8000/api/bookings/${id}/cancel`,
+                            { method: "PATCH" },
+                          )
+                            .then((res) => {
+                              if (!res.ok) throw new Error(String(res.status));
+                              return fetch(
+                                "http://localhost:8000/api/bookings/",
+                              ).then((r) => {
+                                if (!r.ok) throw new Error(String(r.status));
+                                return r.json();
+                              });
+                            })
+                            .then(setBookings)
+                            .then(() => {
+                              setBookingModal(null);
+                              setSelection(null);
+                            })
+                            .catch(console.error);
+                        }}
+                      >
+                        Отменить бронь
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      className="rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                      onClick={() => {
-                        const id = bookingModal.bookingId;
-                        if (id == null) return;
-                        fetch(
-                          `http://localhost:8000/api/bookings/${id}/cancel`,
-                          { method: "PATCH" },
-                        )
-                          .then((res) => {
-                            if (!res.ok) throw new Error(String(res.status));
-                            return fetch(
-                              "http://localhost:8000/api/bookings/",
-                            ).then((r) => {
-                              if (!r.ok) throw new Error(String(r.status));
-                              return r.json();
-                            });
-                          })
-                          .then(setBookings)
-                          .then(() => {
-                            setBookingModal(null);
-                            setSelection(null);
-                          })
-                          .catch(console.error);
-                      }}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 hover:bg-gray-50"
+                      onClick={() => setBookingModal(null)}
                     >
-                      Отменить бронь
+                      Отмена
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                    onClick={() => {
+                    <button
+                      type="button"
+                      className="rounded-lg bg-green-500 px-3 py-1 text-sm text-black hover:bg-green-600"
+                      onClick={() => {
                       const payload = {
                         check_in_date: bookingModal.start,
                         check_out_date: bookingModal.end,
@@ -1464,6 +1782,7 @@ export default function App() {
                         notes: formData.notes.trim()
                           ? formData.notes
                           : null,
+                        source: formData.source,
                       };
                       const isEdit = bookingModal.bookingId != null;
                       const url = isEdit
@@ -1502,7 +1821,8 @@ export default function App() {
                     }}
                   >
                     {bookingModal.bookingId != null ? "Сохранить" : "Создать"}
-                  </button>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

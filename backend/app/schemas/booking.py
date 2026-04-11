@@ -32,6 +32,8 @@ class BookingUpdate(BaseModel):
     currency: str = "RUB"
     check_in_time: str | None = None
     check_out_time: str | None = None
+    notes: str | None = None
+    source: str = "manual"
 
 
 class BookingResponse(BookingBase):
