@@ -331,10 +331,68 @@ function bookingCalendarSegmentInSection(
   return { firstDay: inSection[0], span: Math.max(1, span) };
 }
 
+function bookingCalendarTimeToMinutes(
+  time: string | null | undefined,
+): number | null {
+  const raw = (time ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  return h * 60 + min;
+}
+
+/** Доля высоты строки (0–100): откуда начинается полоса в первый день сегмента. */
+function bookingCalendarCheckInTopPercent(
+  time: string | null | undefined,
+): number {
+  const mins = bookingCalendarTimeToMinutes(time);
+  if (mins == null) return 50;
+  if (mins < 8 * 60) return 0;
+  if (mins < 12 * 60) return 25;
+  if (mins < 16 * 60) return 50;
+  return 75;
+}
+
+/**
+ * Доля высоты строки (0–100): до какой отметки доходит полоса в последний день сегмента
+ * (от верха ячейки вниз).
+ */
+function bookingCalendarCheckOutBottomPercent(
+  time: string | null | undefined,
+): number {
+  const mins = bookingCalendarTimeToMinutes(time);
+  if (mins == null) return 100;
+  if (mins < 8 * 60) return 25;
+  if (mins < 12 * 60) return 50;
+  if (mins < 16 * 60) return 75;
+  return 100;
+}
+
+function bookingCalendarBarVerticalRem(
+  booking: Booking,
+  span: number,
+): { topRem: number; heightRem: number } {
+  const topRem =
+    (bookingCalendarCheckInTopPercent(booking.check_in_time) / 100) *
+    ROW_HEIGHT;
+  const bottomRem =
+    (bookingCalendarCheckOutBottomPercent(booking.check_out_time) / 100) *
+    ROW_HEIGHT;
+  const rawHeight =
+    span * ROW_HEIGHT - topRem - (ROW_HEIGHT - bottomRem);
+  return {
+    topRem,
+    heightRem: Math.max(0.25, rawHeight),
+  };
+}
+
 function calendarBookingBarClasses(booking: Booking): string {
   return (
     bookingCellSourceColorClasses(booking.source) +
-    " absolute left-0 top-0 z-[18] flex h-auto min-h-0 w-full cursor-pointer flex-col items-center justify-center gap-0 overflow-hidden rounded-md px-0.5 text-center text-[10px] leading-tight text-gray-900 shadow-sm "
+    " absolute left-0 top-0 z-[18] flex h-auto min-h-0 w-full cursor-pointer flex-col items-center justify-center gap-0 overflow-hidden px-0.5 text-center text-[10px] leading-tight text-gray-900 shadow-sm "
   );
 }
 
@@ -999,6 +1057,13 @@ export default function App() {
                                       const isSegmentStart =
                                         segment != null && day === segment.firstDay;
                                       const isBooked = bookingsHere.length > 0;
+                                      const calendarBarRem =
+                                        booking && segment && isSegmentStart
+                                          ? bookingCalendarBarVerticalRem(
+                                              booking,
+                                              segment.span,
+                                            )
+                                          : null;
 
                                       return (
                                         <div
@@ -1089,11 +1154,18 @@ export default function App() {
                                             openBookingModalForEdit(booking);
                                           }}
                                         >
-                                          {booking && isSegmentStart && segment ? (
+                                          {calendarBarRem != null ? (
                                             <div
-                                              className={calendarBookingBarClasses(booking)}
+                                              className={
+                                                calendarBookingBarClasses(booking) +
+                                                (segment.span === 1
+                                                  ? " rounded-2xl"
+                                                  : " rounded-t-2xl rounded-b-2xl")
+                                              }
                                               style={{
-                                                height: `calc(${segment.span} * ${ROW_HEIGHT}rem)`,
+                                                maxHeight: `${segment.span * ROW_HEIGHT}rem`,
+                                                top: `${calendarBarRem.topRem}rem`,
+                                                height: `${calendarBarRem.heightRem}rem`,
                                               }}
                                               title={
                                                 [
