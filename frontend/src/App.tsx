@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ApartmentForm } from "./components/ApartmentForm";
 import { ApartmentsList, type Apartment } from "./components/ApartmentsList";
+import PriceCalendar from "./pages/PriceCalendar";
 
 type Booking = {
   id: number;
@@ -468,7 +469,12 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [activeTab, setActiveTab] = useState<
-    "calendar" | "apartments" | "events" | "bookings" | "sources"
+    | "calendar"
+    | "apartments"
+    | "events"
+    | "bookings"
+    | "sources"
+    | "priceCalendar"
   >("calendar");
 
   const [enabledEvents, setEnabledEvents] = useState<Record<string, boolean>>(
@@ -955,6 +961,16 @@ export default function App() {
           onClick={() => setActiveTab("sources")}
         >
           Источники
+        </div>
+
+        <div
+          className={
+            "cursor-pointer p-2 rounded " +
+            (activeTab === "priceCalendar" ? "bg-gray-200" : "")
+          }
+          onClick={() => setActiveTab("priceCalendar")}
+        >
+          Календарь цен
         </div>
       </div>
 
@@ -1603,6 +1619,16 @@ export default function App() {
                 )}
               </div>
             </>
+          )}
+
+          {activeTab === "priceCalendar" && (
+            <PriceCalendar
+              apartmentId={
+                apartments && apartments.length > 0 ? apartments[0].id : 1
+              }
+              events={events}
+              enabledEvents={enabledEvents}
+            />
           )}
 
           {activeTab === "apartments" && (
