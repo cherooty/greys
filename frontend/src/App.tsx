@@ -33,6 +33,9 @@ const BOOKINGS_COL_MIN: Record<BookingsResizableKey, number> = {
   comment: 120,
 };
 
+/** Высота строки дня в шахматке (rem), согласована с class h-8 */
+const ROW_HEIGHT = 2;
+
 const events: EventItem[] = [
   { id: "1", date: "2026-05-01", title: "Праздник весны", type: "holiday" },
   { id: "2", date: "2026-05-02", title: "Выходные", type: "holiday" },
@@ -274,30 +277,65 @@ function apartmentColumnIdleClasses(aptName: string): string {
 }
 
 function bookingCellClasses(sem: DaySemantics, aptName: string): string {
-  const base = "h-8 border border-gray-200 ";
+  const base = "relative h-8 border border-gray-200 ";
   if (sem.isHoliday) return base + "bg-red-50 hover:bg-red-100";
   if (sem.isWeekend) return base + "bg-blue-50 hover:bg-blue-100";
   return base + apartmentColumnIdleClasses(aptName);
 }
 
-function bookedRangeCellClasses(
-  day: string,
+/** Ordinal day index (Gregorian), разбор только YYYY-MM-DD, без Date. */
+function isoYmdToOrdinalDay(iso: string): number {
+  const parts = iso.split("-");
+  if (parts.length !== 3) return 0;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return 0;
+  const a = Math.floor((14 - m) / 12);
+  const y1 = y + 4800 - a;
+  const m1 = m + 12 * a - 3;
+  return (
+    d +
+    Math.floor((153 * m1 + 2) / 5) +
+    365 * y1 +
+    Math.floor(y1 / 4) -
+    Math.floor(y1 / 100) +
+    Math.floor(y1 / 400) -
+    32045
+  );
+}
+
+/** Число ночей по сетке: день выезда не входит; минимум 1. */
+function bookingCalendarStaySpanDays(checkIn: string, checkOut: string): number {
+  const n = isoYmdToOrdinalDay(checkOut) - isoYmdToOrdinalDay(checkIn);
+  return Math.max(1, n);
+}
+
+/**
+ * Один визуальный сегмент брони внутри месяца: первый день диапазона в section.days и длина.
+ * Нужно, чтобы полоса не перекрывала строку-заголовок следующего месяца в общей сетке.
+ */
+function bookingCalendarSegmentInSection(
   booking: Booking,
-  prevBooking: Booking | undefined,
-  nextBooking: Booking | undefined,
-): string {
-  const samePrev = prevBooking && prevBooking.id === booking.id;
-  const sameNext = nextBooking && nextBooking.id === booking.id;
+  sectionDays: string[],
+): { firstDay: string; span: number } | null {
+  const inSection = sectionDays.filter(
+    (d) => d >= booking.check_in_date && d < booking.check_out_date,
+  );
+  if (inSection.length === 0) return null;
+  const full = bookingCalendarStaySpanDays(
+    booking.check_in_date,
+    booking.check_out_date,
+  );
+  const span = Math.min(full, inSection.length);
+  return { firstDay: inSection[0], span: Math.max(1, span) };
+}
 
-  let s =
-    "h-8 " +
+function calendarBookingBarClasses(booking: Booking): string {
+  return (
     bookingCellSourceColorClasses(booking.source) +
-    " text-gray-900 text-[10px] flex flex-col items-center justify-center gap-0 px-0.5 min-w-0 overflow-hidden shadow-sm leading-tight ";
-
-  if (!samePrev) s += "border-t border-gray-200 ";
-  if (!sameNext) s += "border-b border-gray-200 ";
-
-  return s.trim();
+    " absolute left-0 top-0 z-[18] flex h-auto min-h-0 w-full cursor-pointer flex-col items-center justify-center gap-0 overflow-hidden rounded-md px-0.5 text-center text-[10px] leading-tight text-gray-900 shadow-sm "
+  );
 }
 
 function buildMonthSections(monthCount: number): MonthSection[] {
@@ -942,46 +980,38 @@ export default function App() {
                                     </div>
 
                                     {apartments.map((apt) => {
-                                      const booking = bookings?.find(
-                                        (b) =>
-                                          b.apartment_id === apt.id &&
-                                          day >= b.check_in_date &&
-                                          day < b.check_out_date,
-                                      );
-                                      const prevDay = isoAddDays(day, -1);
-                                      const nextDay = isoAddDays(day, 1);
-
-                                      const prevBooking = bookings?.find(
-                                        (b) =>
-                                          b.apartment_id === apt.id &&
-                                          prevDay >= b.check_in_date &&
-                                          prevDay < b.check_out_date,
-                                      );
-
-                                      const nextBooking = bookings?.find(
-                                        (b) =>
-                                          b.apartment_id === apt.id &&
-                                          nextDay >= b.check_in_date &&
-                                          nextDay < b.check_out_date,
-                                      );
-                                      const isBooked = booking !== undefined;
-                                      const isStart =
-                                        booking !== undefined &&
-                                        day === booking.check_in_date;
+                                      const bookingsHere =
+                                        bookings?.filter(
+                                          (b) =>
+                                            b.apartment_id === apt.id &&
+                                            day >= b.check_in_date &&
+                                            day < b.check_out_date,
+                                        ) ?? [];
+                                      // NOTE: currently we take only the first booking.
+                                      // Multiple overlapping bookings are not yet supported.
+                                      const booking = bookingsHere[0];
+                                      const segment = booking
+                                        ? bookingCalendarSegmentInSection(
+                                            booking,
+                                            section.days,
+                                          )
+                                        : null;
+                                      const isSegmentStart =
+                                        segment != null && day === segment.firstDay;
+                                      const isBooked = bookingsHere.length > 0;
 
                                       return (
                                         <div
                                           key={apt.id + "-" + day}
                                           className={
-                                            (booking
-                                              ? bookedRangeCellClasses(
-                                                  day,
-                                                  booking,
-                                                  prevBooking,
-                                                  nextBooking,
-                                                ) + " cursor-pointer"
-                                              : bookingCellClasses(sem, apt.name)) +
-                                            (!booking
+                                            (booking && !isSegmentStart
+                                              ? bookingCellClasses(sem, apt.name) +
+                                                " z-[1] cursor-pointer"
+                                              : booking && isSegmentStart
+                                                ? bookingCellClasses(sem, apt.name) +
+                                                  " z-[12] cursor-pointer"
+                                                : bookingCellClasses(sem, apt.name)) +
+                                            (!isBooked
                                               ? " cursor-pointer hover:border-blue-400"
                                               : "") +
                                             (isInSelection(day, apt.id)
@@ -1059,9 +1089,12 @@ export default function App() {
                                             openBookingModalForEdit(booking);
                                           }}
                                         >
-                                          {booking && isStart ? (
+                                          {booking && isSegmentStart && segment ? (
                                             <div
-                                              className="flex min-h-0 w-full min-w-0 flex-col items-center justify-center gap-0 text-center"
+                                              className={calendarBookingBarClasses(booking)}
+                                              style={{
+                                                height: `calc(${segment.span} * ${ROW_HEIGHT}rem)`,
+                                              }}
                                               title={
                                                 [
                                                   bookingBlockLine1(booking),
