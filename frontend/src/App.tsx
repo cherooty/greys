@@ -79,11 +79,36 @@ const apartmentColors: Record<string, string> = {
 };
 
 const SOURCES = {
-  manual: { id: "manual", label: "Вручную", color: "bg-green-200" },
-  avito: { id: "avito", label: "Авито", color: "bg-red-200" },
-  sutochno: { id: "sutochno", label: "Суточно", color: "bg-purple-200" },
-  cian: { id: "cian", label: "ЦИАН", color: "bg-sky-200" },
-  yandex: { id: "yandex", label: "Яндекс.Путешествия", color: "bg-yellow-200" },
+  manual: {
+    id: "manual",
+    label: "Вручную",
+    color: "bg-green-200",
+    barBorder: "border-green-400",
+  },
+  avito: {
+    id: "avito",
+    label: "Авито",
+    color: "bg-red-200",
+    barBorder: "border-red-400",
+  },
+  sutochno: {
+    id: "sutochno",
+    label: "Суточно",
+    color: "bg-purple-200",
+    barBorder: "border-purple-400",
+  },
+  cian: {
+    id: "cian",
+    label: "ЦИАН",
+    color: "bg-sky-200",
+    barBorder: "border-sky-400",
+  },
+  yandex: {
+    id: "yandex",
+    label: "Яндекс.Путешествия",
+    color: "bg-yellow-200",
+    barBorder: "border-yellow-400",
+  },
 } as const;
 
 function bookingCellSourceColorClasses(source: string | undefined): string {
@@ -389,9 +414,23 @@ function bookingCalendarBarVerticalRem(
   };
 }
 
+/** Обводка полосы брони в календаре — чуть темнее заливки источника. */
+function bookingCalendarBarBorderClasses(source: string | undefined): string {
+  const key =
+    source != null && source in SOURCES
+      ? (source as keyof typeof SOURCES)
+      : "manual";
+  const colorClass = SOURCES[key].barBorder;
+  return colorClass != null
+    ? `border ${colorClass}`
+    : "border border-black/20";
+}
+
 function calendarBookingBarClasses(booking: Booking): string {
   return (
     bookingCellSourceColorClasses(booking.source) +
+    " " +
+    bookingCalendarBarBorderClasses(booking.source) +
     " absolute left-0 top-0 z-[18] flex h-auto min-h-0 w-full cursor-pointer flex-col items-center justify-center gap-0 overflow-hidden px-0.5 text-center text-[10px] leading-tight text-gray-900 shadow-sm "
   );
 }
@@ -1756,58 +1795,110 @@ export default function App() {
                     <h3 className="text-sm font-bold text-gray-800">
                       💰 Финансы
                     </h3>
-                    <div className="space-y-2">
-                      <div>
-                        <div className="mb-1 text-xs font-medium text-gray-600">
-                          Цена для гостя
+                    {(() => {
+                      const nights = bookingNightCountForModal(
+                        bookingModal.start,
+                        bookingModal.end,
+                      );
+                      const nightsClamped = Math.max(1, nights);
+                      const editingBooking =
+                        bookingModal.bookingId != null
+                          ? bookings?.find((b) => b.id === bookingModal.bookingId)
+                          : undefined;
+                      const ownerTotal = editingBooking?.owner_price;
+                      const guestTotal = Number(formData.total_price || 0);
+                      const ownerNum =
+                        ownerTotal != null ? Number(ownerTotal) : NaN;
+                      const ownerPerNight =
+                        Number.isFinite(ownerNum) && ownerNum > 0
+                          ? Math.round(ownerNum / nightsClamped)
+                          : null;
+                      const guestPerNight =
+                        guestTotal > 0
+                          ? Math.round(guestTotal / nightsClamped)
+                          : null;
+                      const curSym = bookingCurrencySymbol("RUB");
+                      return (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Мне на руки
+                              </span>
+                              <input
+                                placeholder="Мои деньги"
+                                className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-right text-sm text-gray-500"
+                                disabled
+                                readOnly
+                                value={
+                                  ownerTotal != null ? String(ownerTotal) : ""
+                                }
+                              />
+                            </div>
+                            {ownerPerNight != null ? (
+                              <p className="mt-1 text-sm text-gray-500">
+                                {ownerPerNight} {curSym} за сутки
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Цена для гостя
+                              </span>
+                              <input
+                                placeholder="Сумма"
+                                className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-gray-200 px-3 py-2 text-right text-sm"
+                                value={formData.total_price}
+                                onChange={(e) =>
+                                  setFormData({
+                                    ...formData,
+                                    total_price: e.target.value,
+                                  })
+                                }
+                              />
+                            </div>
+                            {guestPerNight != null ? (
+                              <p className="mt-1 text-sm text-gray-500">
+                                {guestPerNight} {curSym} за сутки
+                              </p>
+                            ) : null}
+                          </div>
+                          <details className="col-span-2 rounded-lg border border-gray-200 bg-white p-3">
+                            <summary className="cursor-pointer text-sm font-medium text-gray-700">
+                              Подробный расчет
+                            </summary>
+                            <div className="mt-3 space-y-2">
+                              <input
+                                placeholder="Комиссия"
+                                className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
+                                disabled
+                                readOnly
+                                value=""
+                              />
+                              <p className="text-xs text-gray-500">
+                                {nights > 0
+                                  ? (() => {
+                                      const total = Number(
+                                        formData.total_price || 0,
+                                      );
+                                      const per =
+                                        total > 0
+                                          ? (total / nights).toFixed(0)
+                                          : null;
+                                      return `Ночей: ${nights}${
+                                        per != null
+                                          ? ` · ~${per} ₽ / ночь (оценка по сумме)`
+                                          : ""
+                                      }`;
+                                    })()
+                                  : "Укажите даты заезда и выезда для оценки."}
+                              </p>
+                            </div>
+                          </details>
                         </div>
-                        <input
-                          placeholder="Сумма"
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                          value={formData.total_price}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              total_price: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <input
-                        placeholder="Мои деньги"
-                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                        disabled
-                        readOnly
-                        value=""
-                      />
-                      <input
-                        placeholder="Комиссия"
-                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                        disabled
-                        readOnly
-                        value=""
-                      />
-                      <p className="text-xs text-gray-500">
-                        {(() => {
-                          const nights = bookingNightCountForModal(
-                            bookingModal.start,
-                            bookingModal.end,
-                          );
-                          const total = Number(formData.total_price || 0);
-                          const per =
-                            nights > 0 && total > 0
-                              ? (total / nights).toFixed(0)
-                              : null;
-                          return nights > 0
-                            ? `Ночей: ${nights}${
-                                per != null
-                                  ? ` · ~${per} ₽ / ночь (оценка по сумме)`
-                                  : ""
-                              }`
-                            : "Укажите даты заезда и выезда для оценки.";
-                        })()}
-                      </p>
-                    </div>
+                      );
+                    })()}
                   </section>
 
                   <section className="space-y-3 rounded-xl bg-gray-50 p-4">

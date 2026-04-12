@@ -3,10 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import engine
 from app.models.base import Base
-from app.models import apartment
+from app.models import apartment, price_calendar  # noqa: F401 — price_calendar: metadata
 
 # импорт роутеров
 from app.api.endpoints import apartments, bookings
+from app.api import price_calendar
 
 app = FastAPI(title="Greys API")
 
@@ -27,6 +28,11 @@ def create_tables():
 # подключение роутеров
 app.include_router(apartments.router, prefix="/api/apartments", tags=["apartments"])
 app.include_router(bookings.router, prefix="/api/bookings", tags=["bookings"])
+app.include_router(
+    price_calendar.router,
+    prefix="/api/price-calendar",
+    tags=["price-calendar"],
+)
 
 
 @app.get("/")
