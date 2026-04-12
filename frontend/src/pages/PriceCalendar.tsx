@@ -90,6 +90,46 @@ function normalizeRange(start: string, end: string): { lo: string; hi: string } 
   return start <= end ? { lo: start, hi: end } : { lo: end, hi: start };
 }
 
+const MONTHS_GENITIVE = [
+  "января",
+  "февраля",
+  "марта",
+  "апреля",
+  "мая",
+  "июня",
+  "июля",
+  "августа",
+  "сентября",
+  "октября",
+  "ноября",
+  "декабря",
+] as const;
+
+/**
+ * Один месяц: «12 – 15 мая 2026 г.»; один день: «15 мая 2026 г.».
+ * Другие случаи — ISO «lo — hi».
+ */
+function formatEditModalRange(start: string, end: string): string {
+  const { lo, hi } = normalizeRange(start, end);
+  const prLo = lo.split("-");
+  const prHi = hi.split("-");
+  if (prLo.length !== 3 || prHi.length !== 3) return `${lo} — ${hi}`;
+  const y1 = Number(prLo[0]);
+  const m1 = Number(prLo[1]);
+  const d1 = Number(prLo[2]);
+  const y2 = Number(prHi[0]);
+  const m2 = Number(prHi[1]);
+  const d2 = Number(prHi[2]);
+  if (y1 !== y2 || m1 !== m2 || m1 < 1 || m1 > 12) {
+    return `${lo} — ${hi}`;
+  }
+  const month = MONTHS_GENITIVE[m1 - 1];
+  if (d1 === d2) {
+    return `${d1} ${month} ${y1} г.`;
+  }
+  return `${d1} – ${d2} ${month} ${y1} г.`;
+}
+
 function isDayInRange(day: string, start: string, end: string): boolean {
   const { lo, hi } = normalizeRange(start, end);
   return day >= lo && day <= hi;
@@ -130,6 +170,19 @@ export default function PriceCalendar({
     end: string;
   } | null>(null);
 
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    day: string;
+  } | null>(null);
+
+  const [editModal, setEditModal] = useState<{
+    start: string;
+    end: string;
+  } | null>(null);
+
+  const [isOpen, setIsOpen] = useState(true);
+
   const fetchBounds = useMemo(() => {
     if (months.length === 0) return null;
     const start_date = months[0].days[0];
@@ -167,6 +220,28 @@ export default function PriceCalendar({
       .finally(() => setLoading(false));
   }, [apartmentId, fetchBounds]);
 
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setEditModal(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    if (editModal !== null) {
+      setIsOpen(true);
+    }
+  }, [editModal]);
+
   function toggleMonth(monthKey: string) {
     setExpandedMonths((prev) => ({
       ...prev,
@@ -186,10 +261,17 @@ export default function PriceCalendar({
     });
   }
 
-  const showActionBar = rangePick != null;
+  function openEditModal(day: string) {
+    if (rangePick) {
+      const { lo, hi } = normalizeRange(rangePick.start, rangePick.end);
+      setEditModal({ start: lo, end: hi });
+    } else {
+      setEditModal({ start: day, end: day });
+    }
+  }
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-20">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="mb-2 text-sm text-gray-600">
         Квартира #{apartmentId} · гостевые цены по дням
       </div>
@@ -285,6 +367,14 @@ export default function PriceCalendar({
                             type="button"
                             className={cellCls}
                             onClick={() => onPriceCellClick(day)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              setContextMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                day,
+                              });
+                            }}
                           >
                             <span
                               className={
@@ -314,23 +404,100 @@ export default function PriceCalendar({
         </div>
       </div>
 
-      {showActionBar ? (
-        <div className="fixed bottom-0 left-48 right-0 z-40 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] backdrop-blur-sm">
+      {contextMenu ? (
+        <div
+          className="fixed z-50 rounded-lg border border-gray-200 bg-white text-sm shadow-md"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
           <button
             type="button"
-            className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-900"
+            className="block w-full px-3 py-2 text-left hover:bg-gray-100"
             onClick={() => {
-              if (!rangePick) return;
-              const { lo, hi } = normalizeRange(rangePick.start, rangePick.end);
-              console.log("Price calendar range", {
-                apartmentId,
-                start_date: lo,
-                end_date: hi,
-              });
+              openEditModal(contextMenu.day);
+              setContextMenu(null);
             }}
           >
-            Настроить даты
+            Изменить
           </button>
+        </div>
+      ) : null}
+
+      {editModal ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setEditModal(null)}
+        >
+          <div
+            className="w-[320px] space-y-3 rounded-xl bg-white p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold">Настроить даты</div>
+
+            <div className="text-base font-semibold text-gray-900">
+              {formatEditModalRange(editModal.start, editModal.end)}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={
+                  "flex-1 rounded-lg border py-2 text-sm font-medium " +
+                  (isOpen
+                    ? "border-blue-400 bg-blue-100"
+                    : "border-gray-200 bg-white")
+                }
+                onClick={() => setIsOpen(true)}
+              >
+                Открыто
+              </button>
+              <button
+                type="button"
+                className={
+                  "flex-1 rounded-lg border py-2 text-sm font-medium " +
+                  (!isOpen
+                    ? "border-blue-400 bg-blue-100"
+                    : "border-gray-200 bg-white")
+                }
+                onClick={() => setIsOpen(false)}
+              >
+                Закрыто
+              </button>
+            </div>
+
+            {isOpen ? (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-700">Цена за сутки</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="w-[120px] rounded border border-gray-200 px-2 py-2 text-right text-sm"
+                  autoFocus={isOpen}
+                />
+              </div>
+            ) : null}
+
+            <textarea
+              placeholder="Комментарий"
+              className="w-full rounded border border-gray-200 px-3 py-2 text-sm"
+              autoFocus={!isOpen}
+            />
+
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Применить
+              </button>
+              <button
+                type="button"
+                className="w-full py-2 text-sm text-gray-600 hover:text-gray-900"
+                onClick={() => setEditModal(null)}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
