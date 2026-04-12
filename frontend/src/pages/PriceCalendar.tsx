@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "http://localhost:8000";
 
+function formatPrice(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  return Number(n).toLocaleString("ru-RU");
+}
+
 type MonthSection = {
   month: string;
   label: string;
@@ -181,7 +186,14 @@ export default function PriceCalendar({
     end: string;
   } | null>(null);
 
+  const [modalPosition, setModalPosition] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+
   const [isOpen, setIsOpen] = useState(true);
+  const [priceInput, setPriceInput] = useState("");
+  const [commentInput, setCommentInput] = useState("");
 
   const fetchBounds = useMemo(() => {
     if (months.length === 0) return null;
@@ -221,7 +233,16 @@ export default function PriceCalendar({
   }, [apartmentId, fetchBounds]);
 
   useEffect(() => {
-    const handler = () => setContextMenu(null);
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      setContextMenu(null);
+      if (
+        !target.closest("[data-price-modal]") &&
+        !target.closest("[data-price-context]")
+      ) {
+        setEditModal(null);
+      }
+    };
     window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
   }, []);
@@ -237,10 +258,17 @@ export default function PriceCalendar({
   }, []);
 
   useEffect(() => {
-    if (editModal !== null) {
-      setIsOpen(true);
-    }
-  }, [editModal]);
+    if (!editModal) return;
+    const { lo } = normalizeRange(editModal.start, editModal.end);
+    const entry = priceMap[lo];
+    setIsOpen(entry?.is_blocked !== true);
+    setPriceInput(
+      entry?.price != null && !Number.isNaN(Number(entry.price))
+        ? formatPrice(Number(entry.price))
+        : "",
+    );
+    setCommentInput("");
+  }, [editModal, priceMap]);
 
   function toggleMonth(monthKey: string) {
     setExpandedMonths((prev) => ({
@@ -261,13 +289,61 @@ export default function PriceCalendar({
     });
   }
 
-  function openEditModal(day: string) {
+  function openEditModal(day: string, e?: MouseEvent) {
     if (rangePick) {
       const { lo, hi } = normalizeRange(rangePick.start, rangePick.end);
       setEditModal({ start: lo, end: hi });
     } else {
       setEditModal({ start: day, end: day });
     }
+
+    if (e) {
+      setModalPosition({
+        x: Math.max(16, Math.min(e.clientX - 160, window.innerWidth - 340)),
+        y: e.clientY + 20,
+      });
+    }
+  }
+
+  async function handleSave() {
+    if (!editModal) return;
+    const { lo, hi } = normalizeRange(editModal.start, editModal.end);
+    const digitsOnly = priceInput.replace(/[^\d]/g, "");
+    const num = Number(digitsOnly);
+    if (isOpen && (digitsOnly === "" || Number.isNaN(num))) {
+      alert("Укажите цену");
+      return;
+    }
+    const price = isOpen ? Math.round(num) : null;
+    const body = {
+      apartment_id: apartmentId,
+      start_date: lo,
+      end_date: hi,
+      price,
+      is_blocked: !isOpen,
+      comment: commentInput.trim() || null,
+    };
+    const res = await fetch(`${API_BASE}/api/price-calendar/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      alert("Не удалось сохранить");
+      return;
+    }
+    const rows = (await res.json()) as ApiRow[];
+    setPriceMap((prev) => {
+      const next = { ...prev };
+      for (const r of rows) {
+        next[r.date] = {
+          price: r.price,
+          is_blocked: r.is_blocked,
+        };
+      }
+      return next;
+    });
+    setEditModal(null);
   }
 
   return (
@@ -335,7 +411,7 @@ export default function PriceCalendar({
                         const priceText =
                           entry?.price != null &&
                           !Number.isNaN(Number(entry.price))
-                            ? `${entry.price} ₽`
+                            ? `${formatPrice(entry.price)} ₽`
                             : "—";
 
                         /**
@@ -386,8 +462,10 @@ export default function PriceCalendar({
                             </span>
                             <span
                               className={
-                                "mt-auto flex w-full flex-1 items-end justify-center pb-0.5 text-center text-xs text-gray-600 " +
-                                (blocked ? "line-through " : "")
+                                "mt-auto flex w-full flex-1 items-end justify-center pb-0.5 text-center text-sm font-medium " +
+                                (blocked
+                                  ? "line-through text-gray-400 "
+                                  : "text-gray-800 ")
                               }
                             >
                               {priceText}
@@ -406,14 +484,15 @@ export default function PriceCalendar({
 
       {contextMenu ? (
         <div
+          data-price-context
           className="fixed z-50 rounded-lg border border-gray-200 bg-white text-sm shadow-md"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <button
             type="button"
             className="block w-full px-3 py-2 text-left hover:bg-gray-100"
-            onClick={() => {
-              openEditModal(contextMenu.day);
+            onClick={(ev) => {
+              openEditModal(contextMenu.day, ev.nativeEvent);
               setContextMenu(null);
             }}
           >
@@ -423,79 +502,100 @@ export default function PriceCalendar({
       ) : null}
 
       {editModal ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-          onClick={() => setEditModal(null)}
-        >
+        <div className="fixed inset-0 z-50 pointer-events-none">
           <div
-            className="w-[320px] space-y-3 rounded-xl bg-white p-4"
-            onClick={(e) => e.stopPropagation()}
+            data-price-modal
+            className="absolute z-50 pointer-events-auto"
+            style={{
+              top: modalPosition.y,
+              left: modalPosition.x,
+            }}
           >
-            <div className="text-sm font-semibold">Настроить даты</div>
+            <div className="relative w-[320px] space-y-3 rounded-xl bg-white p-4 shadow-xl ring-1 ring-black/5">
+              <div className="absolute -top-2 left-6 h-3 w-3 rotate-45 bg-white border-l border-t border-gray-200" />
+              <div className="text-sm font-semibold">Настроить даты</div>
 
-            <div className="text-base font-semibold text-gray-900">
-              {formatEditModalRange(editModal.start, editModal.end)}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={
-                  "flex-1 rounded-lg border py-2 text-sm font-medium " +
-                  (isOpen
-                    ? "border-blue-400 bg-blue-100"
-                    : "border-gray-200 bg-white")
-                }
-                onClick={() => setIsOpen(true)}
-              >
-                Открыто
-              </button>
-              <button
-                type="button"
-                className={
-                  "flex-1 rounded-lg border py-2 text-sm font-medium " +
-                  (!isOpen
-                    ? "border-blue-400 bg-blue-100"
-                    : "border-gray-200 bg-white")
-                }
-                onClick={() => setIsOpen(false)}
-              >
-                Закрыто
-              </button>
-            </div>
-
-            {isOpen ? (
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-gray-700">Цена за сутки</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className="w-[120px] rounded border border-gray-200 px-2 py-2 text-right text-sm"
-                  autoFocus={isOpen}
-                />
+              <div className="text-base font-semibold text-gray-900">
+                {formatEditModalRange(editModal.start, editModal.end)}
               </div>
-            ) : null}
 
-            <textarea
-              placeholder="Комментарий"
-              className="w-full rounded border border-gray-200 px-3 py-2 text-sm"
-              autoFocus={!isOpen}
-            />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={
+                    "flex-1 rounded-lg border py-2 text-sm font-medium " +
+                    (isOpen
+                      ? "border-blue-400 bg-blue-100"
+                      : "border-gray-200 bg-white")
+                  }
+                  onClick={() => setIsOpen(true)}
+                >
+                  Открыто
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "flex-1 rounded-lg border py-2 text-sm font-medium " +
+                    (!isOpen
+                      ? "border-blue-400 bg-blue-100"
+                      : "border-gray-200 bg-white")
+                  }
+                  onClick={() => setIsOpen(false)}
+                >
+                  Закрыто
+                </button>
+              </div>
 
-            <div className="flex flex-col gap-2 pt-1">
-              <button
-                type="button"
-                className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                Применить
-              </button>
-              <button
-                type="button"
-                className="w-full py-2 text-sm text-gray-600 hover:text-gray-900"
-                onClick={() => setEditModal(null)}
-              >
-                Отмена
-              </button>
+              {isOpen ? (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-gray-700">Цена за сутки</span>
+                  <div className="relative w-[120px]">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className="w-full rounded border border-gray-200 px-2 py-2 pr-6 text-center text-sm"
+                      autoFocus={isOpen}
+                      value={priceInput}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^\d]/g, "");
+                        setPriceInput(raw);
+                      }}
+                      onBlur={(e) => {
+                        const raw = e.target.value.replace(/[^\d]/g, "");
+                        if (raw) setPriceInput(formatPrice(Number(raw)));
+                      }}
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                      ₽
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              <textarea
+                placeholder="Комментарий"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-sm"
+                autoFocus={!isOpen}
+                value={commentInput}
+                onChange={(e) => setCommentInput(e.target.value)}
+              />
+
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="button"
+                  className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  onClick={handleSave}
+                >
+                  Применить
+                </button>
+                <button
+                  type="button"
+                  className="w-full py-2 text-sm text-gray-600 hover:text-gray-900"
+                  onClick={() => setEditModal(null)}
+                >
+                  Отмена
+                </button>
+              </div>
             </div>
           </div>
         </div>
