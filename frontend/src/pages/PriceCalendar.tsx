@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = "http://localhost:8000";
 
@@ -191,6 +191,8 @@ export default function PriceCalendar({
     y: 0,
   });
 
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
   const [isOpen, setIsOpen] = useState(true);
   const [priceInput, setPriceInput] = useState("");
   const [commentInput, setCommentInput] = useState("");
@@ -270,6 +272,26 @@ export default function PriceCalendar({
     setCommentInput("");
   }, [editModal, priceMap]);
 
+  useEffect(() => {
+    if (!editModal || !modalRef.current) return;
+
+    const rect = modalRef.current.getBoundingClientRect();
+
+    if (rect.bottom > window.innerHeight - 8) {
+      setModalPosition((prev) => ({
+        ...prev,
+        y: prev.y - (rect.bottom - window.innerHeight + 8),
+      }));
+    }
+
+    if (rect.top < 8) {
+      setModalPosition((prev) => ({
+        ...prev,
+        y: 8,
+      }));
+    }
+  }, [editModal]);
+
   function toggleMonth(monthKey: string) {
     setExpandedMonths((prev) => ({
       ...prev,
@@ -347,14 +369,18 @@ export default function PriceCalendar({
   }
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="mb-2 text-sm text-gray-600">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col">
+      <div className="mb-2 shrink-0 text-sm text-gray-600">
         Квартира #{apartmentId} · гостевые цены по дням
       </div>
-      {loading ? <p className="text-sm text-gray-500">Загрузка…</p> : null}
-      {loadError ? <p className="text-sm text-red-600">{loadError}</p> : null}
+      {loading ? (
+        <p className="shrink-0 text-sm text-gray-500">Загрузка…</p>
+      ) : null}
+      {loadError ? (
+        <p className="shrink-0 text-sm text-red-600">{loadError}</p>
+      ) : null}
 
-      <div className="bg-white flex min-h-[12rem] min-w-0 flex-1 flex-col rounded-xl p-4 shadow max-h-[calc(100vh-10rem)]">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl bg-white p-4 shadow">
         <div className="min-h-0 flex-1 overflow-auto -mx-1 px-1">
           <div className="min-w-0 space-y-2 text-sm">
             {months.map((section) => (
@@ -504,6 +530,7 @@ export default function PriceCalendar({
       {editModal ? (
         <div className="fixed inset-0 z-50 pointer-events-none">
           <div
+            ref={modalRef}
             data-price-modal
             className="absolute z-50 pointer-events-auto"
             style={{

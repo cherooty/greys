@@ -37,6 +37,8 @@ const BOOKINGS_COL_MIN: Record<BookingsResizableKey, number> = {
 /** Высота строки дня в шахматке (rem), согласована с class h-8 */
 const ROW_HEIGHT = 2;
 
+const API_BASE = "http://localhost:8000";
+
 const events: EventItem[] = [
   { id: "1", date: "2026-05-01", title: "Праздник весны", type: "holiday" },
   { id: "2", date: "2026-05-02", title: "Выходные", type: "holiday" },
@@ -460,6 +462,10 @@ function buildMonthSections(monthCount: number): MonthSection[] {
   return sections;
 }
 
+function formatPrice(n: number) {
+  return n.toLocaleString("ru-RU");
+}
+
 export default function App() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -468,6 +474,10 @@ export default function App() {
   const [editAddress, setEditAddress] = useState("");
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
+  const [priceMap, setPriceMap] = useState<
+    Record<number, Record<string, { price: number | null; is_blocked: boolean }>>
+  >({});
+
   const [activeTab, setActiveTab] = useState<
     | "calendar"
     | "apartments"
@@ -500,6 +510,20 @@ export default function App() {
     apartmentId: number;
     isBooked: boolean;
   } | null>(null);
+
+  const [editModal, setEditModal] = useState<{
+    apartmentId: number;
+    start: string;
+    end: string;
+  } | null>(null);
+
+  const [modalPosition, setModalPosition] = useState<{ x: number; y: number }>(
+    { x: 0, y: 0 },
+  );
+
+  const [priceInput, setPriceInput] = useState("");
+  const [commentInput, setCommentInput] = useState("");
+  const [isOpen, setIsOpen] = useState(true);
 
   const [bookingModal, setBookingModal] = useState<{
     apartmentId: number;
@@ -544,6 +568,7 @@ export default function App() {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const calendarAreaRef = useRef<HTMLDivElement | null>(null);
+  const chessBoardPriceModalRef = useRef<HTMLDivElement | null>(null);
 
   function openBookingModalFromSelection(apartmentId: number) {
     if (!selection) return;
@@ -592,6 +617,111 @@ export default function App() {
     setContextMenu(null);
   }
 
+  useEffect(() => {
+    if (!editModal) return;
+    const entry = priceMap[editModal.apartmentId]?.[editModal.start];
+    setIsOpen(entry?.is_blocked !== true);
+    setPriceInput(entry?.price != null ? String(entry.price) : "");
+    setCommentInput("");
+  }, [editModal, priceMap]);
+
+  useEffect(() => {
+    if (!editModal || !chessBoardPriceModalRef.current) return;
+
+    const rect = chessBoardPriceModalRef.current.getBoundingClientRect();
+
+    if (rect.bottom > window.innerHeight - 8) {
+      setModalPosition((prev) => ({
+        ...prev,
+        y: prev.y - (rect.bottom - window.innerHeight + 8),
+      }));
+    }
+
+    if (rect.top < 8) {
+      setModalPosition((prev) => ({
+        ...prev,
+        y: 8,
+      }));
+    }
+  }, [editModal]);
+
+  useEffect(() => {
+    if (!editModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEditModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editModal]);
+
+  useEffect(() => {
+    if (!editModal) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (chessBoardPriceModalRef.current?.contains(t)) return;
+      if (contextMenuRef.current?.contains(t)) return;
+      setEditModal(null);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [editModal]);
+
+  async function handleSave() {
+    if (!editModal) return;
+
+    const raw = priceInput.replace(/[^\d]/g, "");
+    const num = Number(raw);
+
+    if (isOpen && (!raw || Number.isNaN(num))) {
+      alert("Укажите цену");
+      return;
+    }
+
+    const body = {
+      apartment_id: editModal.apartmentId,
+      start_date: editModal.start,
+      end_date: editModal.end,
+      price: isOpen ? num : null,
+      is_blocked: !isOpen,
+      comment: commentInput.trim() || null,
+    };
+
+    const res = await fetch(`${API_BASE}/api/price-calendar/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      alert("Ошибка сохранения");
+      return;
+    }
+
+    const rows = (await res.json()) as Array<{
+      date: string;
+      price: number | null;
+      is_blocked: boolean;
+    }>;
+
+    setPriceMap((prev) => {
+      const next = { ...prev };
+      const aid = editModal.apartmentId;
+      if (!next[aid]) next[aid] = {};
+      const inner = { ...next[aid] };
+      for (const r of rows) {
+        const d = String(r.date).slice(0, 10);
+        inner[d] = {
+          price: r.price,
+          is_blocked: r.is_blocked,
+        };
+      }
+      next[aid] = inner;
+      return next;
+    });
+
+    setEditModal(null);
+  }
+
   const eventsByDate = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
     events.forEach((e) => {
@@ -612,6 +742,14 @@ export default function App() {
   }, []);
 
   const calendarMonths = useMemo(() => buildMonthSections(12), []);
+
+  const priceCalendarFetchBounds = useMemo(() => {
+    if (calendarMonths.length === 0) return null;
+    const start_date = calendarMonths[0].days[0];
+    const lastMonth = calendarMonths[calendarMonths.length - 1];
+    const end_date = lastMonth.days[lastMonth.days.length - 1];
+    return { start_date, end_date };
+  }, [calendarMonths]);
 
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>(
     () => {
@@ -768,6 +906,49 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (activeTab !== "calendar") return;
+    if (!apartments || apartments.length === 0 || !priceCalendarFetchBounds) {
+      setPriceMap({});
+      return;
+    }
+    const { start_date, end_date } = priceCalendarFetchBounds;
+    type PriceRow = {
+      date: string;
+      price: number | null;
+      is_blocked: boolean;
+    };
+    Promise.all(
+      apartments.map((apt) => {
+        const url = new URL("http://localhost:8000/api/price-calendar/");
+        url.searchParams.set("apartment_id", String(apt.id));
+        url.searchParams.set("start_date", start_date);
+        url.searchParams.set("end_date", end_date);
+        return fetch(url.toString()).then((res) =>
+          res.ok ? (res.json() as Promise<PriceRow[]>) : Promise.resolve([]),
+        );
+      }),
+    )
+      .then((perApt) => {
+        const next: Record<
+          number,
+          Record<string, { price: number | null; is_blocked: boolean }>
+        > = {};
+        apartments.forEach((apt, i) => {
+          next[apt.id] = {};
+          for (const row of perApt[i]) {
+            const dateKey = String(row.date).slice(0, 10);
+            next[apt.id][dateKey] = {
+              price: row.price,
+              is_blocked: row.is_blocked,
+            };
+          }
+        });
+        setPriceMap(next);
+      })
+      .catch(() => setPriceMap({}));
+  }, [activeTab, apartments, priceCalendarFetchBounds]);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
         popupRef.current &&
@@ -810,6 +991,7 @@ export default function App() {
       if (bookingModal) return;
       const t = event.target as Node;
       if (calendarAreaRef.current?.contains(t)) return;
+      if (chessBoardPriceModalRef.current?.contains(t)) return;
       if (popupRef.current?.contains(t)) return;
       if (contextMenuRef.current?.contains(t)) return;
       setSelection(null);
@@ -819,7 +1001,7 @@ export default function App() {
     return () => {
       document.removeEventListener("mousedown", handleDocMouseDown);
     };
-  }, [bookingModal]);
+  }, [bookingModal, editModal]);
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -1112,6 +1294,9 @@ export default function App() {
                                       const isSegmentStart =
                                         segment != null && day === segment.firstDay;
                                       const isBooked = bookingsHere.length > 0;
+                                      const entry = priceMap[apt.id]?.[day];
+                                      const price = entry?.price;
+                                      const blocked = entry?.is_blocked === true;
                                       const calendarBarRem =
                                         booking && segment && isSegmentStart
                                           ? bookingCalendarBarVerticalRem(
@@ -1192,15 +1377,35 @@ export default function App() {
                                             });
                                           }}
                                           onContextMenu={(e) => {
+                                            if (isBooked) {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              setContextMenu({
+                                                x: e.clientX,
+                                                y: e.clientY,
+                                                day,
+                                                apartmentId: apt.id,
+                                                isBooked: true,
+                                              });
+                                              return;
+                                            }
                                             e.preventDefault();
                                             e.stopPropagation();
-
-                                            setContextMenu({
-                                              x: e.clientX,
-                                              y: e.clientY,
-                                              day,
+                                            setContextMenu(null);
+                                            setEditModal({
                                               apartmentId: apt.id,
-                                              isBooked,
+                                              start: day,
+                                              end: day,
+                                            });
+                                            setModalPosition({
+                                              x: Math.max(
+                                                16,
+                                                Math.min(
+                                                  e.clientX - 160,
+                                                  window.innerWidth - 340,
+                                                ),
+                                              ),
+                                              y: e.clientY + 20,
                                             });
                                           }}
                                           onClick={(e) => {
@@ -1239,6 +1444,15 @@ export default function App() {
                                                   {bookingBlockLine2(booking)}
                                                 </span>
                                               ) : null}
+                                            </div>
+                                          ) : null}
+                                          {!isBooked &&
+                                          !blocked &&
+                                          price != null ? (
+                                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                              <span className="text-sm font-medium text-gray-800">
+                                                {formatPrice(price)} ₽
+                                              </span>
                                             </div>
                                           ) : null}
                                         </div>
@@ -1333,6 +1547,103 @@ export default function App() {
                   )}
                 </div>
               )}
+              {editModal && activeTab === "calendar" ? (
+                <div className="pointer-events-none fixed inset-0 z-[60]">
+                  <div
+                    ref={chessBoardPriceModalRef}
+                    data-chess-price-modal
+                    className="pointer-events-auto absolute z-[60]"
+                    style={{
+                      top: modalPosition.y,
+                      left: modalPosition.x,
+                    }}
+                  >
+                    <div className="relative w-[320px] space-y-3 rounded-xl bg-white p-4 shadow-xl ring-1 ring-black/5">
+                      <div className="absolute -top-2 left-6 h-3 w-3 rotate-45 border-l border-t border-gray-200 bg-white" />
+                      <div className="text-sm font-semibold">Настроить даты</div>
+                      <div className="text-base font-semibold text-gray-900">
+                        {formatDateRU(editModal.start)}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className={
+                            "flex-1 rounded-lg border py-2 text-sm font-medium " +
+                            (isOpen
+                              ? "border-blue-400 bg-blue-100"
+                              : "border-gray-200 bg-white")
+                          }
+                          onClick={() => setIsOpen(true)}
+                        >
+                          Открыто
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            "flex-1 rounded-lg border py-2 text-sm font-medium " +
+                            (!isOpen
+                              ? "border-blue-400 bg-blue-100"
+                              : "border-gray-200 bg-white")
+                          }
+                          onClick={() => setIsOpen(false)}
+                        >
+                          Закрыто
+                        </button>
+                      </div>
+                      {isOpen ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-gray-700">
+                            Цена за сутки
+                          </span>
+                          <div className="relative w-[120px]">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              className="w-full rounded border border-gray-200 px-2 py-2 pr-6 text-center text-sm"
+                              autoFocus={isOpen}
+                              value={priceInput}
+                              onChange={(ev) => {
+                                const r = ev.target.value.replace(/[^\d]/g, "");
+                                setPriceInput(r);
+                              }}
+                              onBlur={(ev) => {
+                                const r = ev.target.value.replace(/[^\d]/g, "");
+                                if (r) setPriceInput(formatPrice(Number(r)));
+                              }}
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                              ₽
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                      <textarea
+                        placeholder="Комментарий"
+                        className="w-full rounded border border-gray-200 px-3 py-2 text-sm"
+                        autoFocus={!isOpen}
+                        value={commentInput}
+                        onChange={(ev) => setCommentInput(ev.target.value)}
+                      />
+                      <div className="flex flex-col gap-2 pt-1">
+                        <button
+                          type="button"
+                          className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                          onClick={handleSave}
+                        >
+                          Применить
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full py-2 text-sm text-gray-600 hover:text-gray-900"
+                          onClick={() => setEditModal(null)}
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </>
           )}
 
@@ -1622,13 +1933,33 @@ export default function App() {
           )}
 
           {activeTab === "priceCalendar" && (
-            <PriceCalendar
-              apartmentId={
-                apartments && apartments.length > 0 ? apartments[0].id : 1
-              }
-              events={events}
-              enabledEvents={enabledEvents}
-            />
+            <div className="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <div className="mb-2 shrink-0 text-sm font-semibold text-gray-700">
+                  {apartments?.[0]?.name || "Квартира 1"}
+                </div>
+                <div className="min-h-0 flex-1">
+                  <PriceCalendar
+                    apartmentId={apartments?.[0]?.id || 1}
+                    events={events}
+                    enabledEvents={enabledEvents}
+                  />
+                </div>
+              </div>
+
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <div className="mb-2 shrink-0 text-sm font-semibold text-gray-700">
+                  {apartments?.[1]?.name || "Квартира 2"}
+                </div>
+                <div className="min-h-0 flex-1">
+                  <PriceCalendar
+                    apartmentId={apartments?.[1]?.id || 2}
+                    events={events}
+                    enabledEvents={enabledEvents}
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {activeTab === "apartments" && (
