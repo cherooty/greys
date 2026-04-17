@@ -34,6 +34,30 @@ const INITIAL_SOURCES: Source[] = [
     enabled: true,
     color: "bg-red-200",
   },
+  {
+    id: "sutochno",
+    name: "Суточно",
+    enabled: true,
+    color: "bg-green-200",
+  },
+  {
+    id: "cian",
+    name: "ЦИАН",
+    enabled: true,
+    color: "bg-blue-200",
+  },
+  {
+    id: "yandex",
+    name: "Яндекс",
+    enabled: true,
+    color: "bg-yellow-200",
+  },
+  {
+    id: "manual",
+    name: "Вручную",
+    enabled: true,
+    color: "bg-gray-200",
+  },
 ];
 
 type EventItem = {
@@ -528,6 +552,11 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES);
+  // TEMP: sync sources with INITIAL_SOURCES for dev
+  useEffect(() => {
+    setSources(INITIAL_SOURCES);
+  }, []);
+
   const [priceMap, setPriceMap] = useState<
     Record<number, Record<string, { price: number | null; is_blocked: boolean }>>
   >({});
