@@ -144,12 +144,15 @@ type PriceCalendarProps = {
   apartmentId?: number;
   events: EventItem[];
   enabledEvents: Record<string, boolean>;
+  /** Внешний контейнер крутит скролл (sticky-заголовок в App); без вложенного overflow-auto */
+  scrollMode?: "internal" | "parent";
 };
 
 export default function PriceCalendar({
   apartmentId = 1,
   events,
   enabledEvents,
+  scrollMode = "internal",
 }: PriceCalendarProps) {
   const months = useMemo(() => buildMonthSections(12), []);
   const todayKey = useMemo(() => {
@@ -368,11 +371,21 @@ export default function PriceCalendar({
     setEditModal(null);
   }
 
+  const parentScroll = scrollMode === "parent";
+
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-      <div className="mb-2 shrink-0 text-sm text-gray-600">
-        Квартира #{apartmentId} · гостевые цены по дням
-      </div>
+    <div
+      className={
+        parentScroll
+          ? "relative flex min-h-0 min-w-0 flex-col"
+          : "relative flex h-full min-h-0 min-w-0 flex-col"
+      }
+    >
+      {!parentScroll ? (
+        <div className="mb-2 shrink-0 text-sm text-gray-600">
+          Квартира #{apartmentId} · гостевые цены по дням
+        </div>
+      ) : null}
       {loading ? (
         <p className="shrink-0 text-sm text-gray-500">Загрузка…</p>
       ) : null}
@@ -380,8 +393,20 @@ export default function PriceCalendar({
         <p className="shrink-0 text-sm text-red-600">{loadError}</p>
       ) : null}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl bg-white p-4 shadow">
-        <div className="min-h-0 flex-1 overflow-auto -mx-1 px-1">
+      <div
+        className={
+          parentScroll
+            ? "flex min-w-0 flex-col p-4"
+            : "flex min-h-0 min-w-0 flex-1 flex-col rounded-xl bg-white p-4 shadow"
+        }
+      >
+        <div
+          className={
+            parentScroll
+              ? "min-w-0 -mx-1 px-1"
+              : "min-h-0 flex-1 overflow-auto -mx-1 px-1"
+          }
+        >
           <div className="min-w-0 space-y-2 text-sm">
             {months.map((section) => (
               <div key={section.month} className="min-w-0">

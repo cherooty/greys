@@ -20,6 +20,22 @@ type Booking = {
   source?: string;
 };
 
+type Source = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  color: string;
+};
+
+const INITIAL_SOURCES: Source[] = [
+  {
+    id: "avito",
+    name: "Авито",
+    enabled: true,
+    color: "bg-red-200",
+  },
+];
+
 type EventItem = {
   id: string;
   date: string;
@@ -466,6 +482,43 @@ function formatPrice(n: number) {
   return n.toLocaleString("ru-RU");
 }
 
+function SourceCard({
+  source,
+  onEnabledChange,
+  onNameChange,
+}: {
+  source: Source;
+  onEnabledChange: (id: string, enabled: boolean) => void;
+  onNameChange: (id: string, name: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl bg-white p-4 shadow sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span
+          className={`h-9 w-9 shrink-0 rounded-lg border border-gray-200 ${source.color}`}
+          title="Цвет в календаре"
+          aria-hidden
+        />
+        <input
+          type="text"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
+          value={source.name}
+          onChange={(e) => onNameChange(source.id, e.target.value)}
+          aria-label="Название источника"
+        />
+      </div>
+      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-gray-700">
+        <input
+          type="checkbox"
+          checked={source.enabled}
+          onChange={(e) => onEnabledChange(source.id, e.target.checked)}
+        />
+        <span>Включён</span>
+      </label>
+    </div>
+  );
+}
+
 export default function App() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -474,6 +527,7 @@ export default function App() {
   const [editAddress, setEditAddress] = useState("");
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
+  const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES);
   const [priceMap, setPriceMap] = useState<
     Record<number, Record<string, { price: number | null; is_blocked: boolean }>>
   >({});
@@ -509,6 +563,7 @@ export default function App() {
     day: string;
     apartmentId: number;
     isBooked: boolean;
+    rangeActions?: boolean;
   } | null>(null);
 
   const [editModal, setEditModal] = useState<{
@@ -646,13 +701,24 @@ export default function App() {
   }, [editModal]);
 
   useEffect(() => {
-    if (!editModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setEditModal(null);
+    if (!bookingModal && !editModal) return undefined;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (bookingModal) {
+        setBookingModal(null);
+        return;
+      }
+      if (editModal) {
+        setEditModal(null);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [editModal]);
+  }, [bookingModal, editModal]);
 
   useEffect(() => {
     if (!editModal) return;
@@ -827,6 +893,15 @@ export default function App() {
     });
     return list;
   }, [bookings, apartments, sortField, sortDirection]);
+
+  const calendarVisibleBookings = useMemo(() => {
+    if (!bookings) return null;
+    return bookings.filter((b) => {
+      if (b.source === undefined) return true;
+      const s = sources.find((x) => x.id === b.source);
+      return s !== undefined && s.enabled;
+    });
+  }, [bookings, sources]);
 
   function handleBookingsSort(field: string) {
     if (sortField === field) {
@@ -1093,8 +1168,8 @@ export default function App() {
   const calendarTodayKey = localTodayKey();
 
   return (
-    <div className="min-h-screen bg-gray-200 flex">
-      <div className="w-48 bg-white border-r p-4 space-y-2">
+    <div className="flex h-screen min-h-0 overflow-hidden bg-gray-200">
+      <div className="w-48 shrink-0 bg-white border-r p-4 space-y-2">
         <div
           className={
             "cursor-pointer p-2 rounded " +
@@ -1102,7 +1177,7 @@ export default function App() {
           }
           onClick={() => setActiveTab("calendar")}
         >
-          Calendar
+          Шахматка
         </div>
 
         <div
@@ -1112,7 +1187,7 @@ export default function App() {
           }
           onClick={() => setActiveTab("apartments")}
         >
-          Apartments
+          Апартаменты
         </div>
 
         <div
@@ -1156,8 +1231,8 @@ export default function App() {
         </div>
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col p-6">
-        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-6">
+        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
           {activeTab === "calendar" && (
             <>
               {bookings === null ? (
@@ -1276,6 +1351,13 @@ export default function App() {
 
                                     {apartments.map((apt) => {
                                       const bookingsHere =
+                                        calendarVisibleBookings?.filter(
+                                          (b) =>
+                                            b.apartment_id === apt.id &&
+                                            day >= b.check_in_date &&
+                                            day < b.check_out_date,
+                                        ) ?? [];
+                                      const bookingsHereAny =
                                         bookings?.filter(
                                           (b) =>
                                             b.apartment_id === apt.id &&
@@ -1293,7 +1375,7 @@ export default function App() {
                                         : null;
                                       const isSegmentStart =
                                         segment != null && day === segment.firstDay;
-                                      const isBooked = bookingsHere.length > 0;
+                                      const isBooked = bookingsHereAny.length > 0;
                                       const entry = priceMap[apt.id]?.[day];
                                       const price = entry?.price;
                                       const blocked = entry?.is_blocked === true;
@@ -1377,20 +1459,38 @@ export default function App() {
                                             });
                                           }}
                                           onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+
+                                            const hasRangeSelection =
+                                              selection != null &&
+                                              selection.apartmentId === apt.id &&
+                                              isInSelection(day, apt.id);
+
+                                            if (hasRangeSelection) {
+                                              setContextMenu({
+                                                x: e.clientX,
+                                                y: e.clientY,
+                                                day,
+                                                apartmentId: apt.id,
+                                                isBooked: false,
+                                                rangeActions: true,
+                                              });
+                                              return;
+                                            }
+
                                             if (isBooked) {
-                                              e.preventDefault();
-                                              e.stopPropagation();
                                               setContextMenu({
                                                 x: e.clientX,
                                                 y: e.clientY,
                                                 day,
                                                 apartmentId: apt.id,
                                                 isBooked: true,
+                                                rangeActions: false,
                                               });
                                               return;
                                             }
-                                            e.preventDefault();
-                                            e.stopPropagation();
+
                                             setContextMenu(null);
                                             setEditModal({
                                               apartmentId: apt.id,
@@ -1446,7 +1546,7 @@ export default function App() {
                                               ) : null}
                                             </div>
                                           ) : null}
-                                          {!isBooked &&
+                                          {bookingsHere.length === 0 &&
                                           !blocked &&
                                           price != null ? (
                                             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1497,7 +1597,55 @@ export default function App() {
                     top: contextMenu.y,
                   }}
                 >
+                  {contextMenu.rangeActions && selection ? (
+                    <>
+                      <div
+                        className="px-3 py-1 hover:bg-gray-100 cursor-pointer"
+                        onClick={() => {
+                          openBookingModalFromSelection(
+                            contextMenu.apartmentId,
+                          );
+                          setContextMenu(null);
+                        }}
+                      >
+                        Создать бронь
+                      </div>
+                      <div
+                        className="px-3 py-1 hover:bg-gray-100 cursor-pointer"
+                        onClick={() => {
+                          const lo =
+                            selection.start < selection.end
+                              ? selection.start
+                              : selection.end;
+                          const hi =
+                            selection.start < selection.end
+                              ? selection.end
+                              : selection.start;
+                          setEditModal({
+                            apartmentId: selection.apartmentId,
+                            start: lo,
+                            end: hi,
+                          });
+                          setModalPosition({
+                            x: Math.max(
+                              16,
+                              Math.min(
+                                contextMenu.x - 160,
+                                window.innerWidth - 340,
+                              ),
+                            ),
+                            y: contextMenu.y + 20,
+                          });
+                          setContextMenu(null);
+                        }}
+                      >
+                        Настроить даты
+                      </div>
+                    </>
+                  ) : null}
+
                   {!contextMenu.isBooked &&
+                    !contextMenu.rangeActions &&
                     selection &&
                     selection.apartmentId === contextMenu.apartmentId && (
                     <div
@@ -1650,21 +1798,28 @@ export default function App() {
           {activeTab === "sources" && (
             <>
               <h2 className="text-xl font-semibold mb-4">Источники</h2>
-              <div className="bg-white rounded-xl shadow p-4 space-y-3 max-w-md">
-                {(Object.values(SOURCES) as (typeof SOURCES)[keyof typeof SOURCES][]).map(
-                  (s) => (
-                    <div
-                      key={s.id}
-                      className="flex items-center gap-3 text-sm"
-                    >
-                      <span
-                        className={`h-8 w-8 shrink-0 rounded-lg ${s.color}`}
-                        aria-hidden
-                      />
-                      <span className="font-medium">{s.label}</span>
-                    </div>
-                  ),
-                )}
+              <div className="flex max-w-lg flex-col gap-4">
+                {sources.map((s) => (
+                  <div key={s.id}>
+                    <SourceCard
+                      source={s}
+                      onEnabledChange={(id, enabled) =>
+                        setSources((prev) =>
+                          prev.map((x) =>
+                            x.id === id ? { ...x, enabled } : x,
+                          ),
+                        )
+                      }
+                      onNameChange={(id, name) =>
+                        setSources((prev) =>
+                          prev.map((x) =>
+                            x.id === id ? { ...x, name } : x,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                ))}
               </div>
             </>
           )}
@@ -1933,30 +2088,52 @@ export default function App() {
           )}
 
           {activeTab === "priceCalendar" && (
-            <div className="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                <div className="mb-2 shrink-0 text-sm font-semibold text-gray-700">
-                  {apartments?.[0]?.name || "Квартира 1"}
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex min-h-0 flex-1 flex-col rounded-xl bg-white shadow">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
+                <div className="grid shrink-0 grid-cols-1 gap-4 border-b border-gray-300/80 bg-gray-200 px-4 pb-2 pt-0.5 lg:grid-cols-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-800">
+                      {apartments?.[0]?.name || "Квартира 1"}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-800">
+                      {apartments?.[1]?.name || "Квартира 2"}
+                    </div>
+                  </div>
                 </div>
-                <div className="min-h-0 flex-1">
-                  <PriceCalendar
-                    apartmentId={apartments?.[0]?.id || 1}
-                    events={events}
-                    enabledEvents={enabledEvents}
-                  />
-                </div>
-              </div>
+                <div className="min-h-0 flex-1 overflow-hidden rounded-t-xl bg-white">
+                  <div className="h-full min-h-0 overflow-x-hidden overflow-y-auto px-4 pb-10">
+                    <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden lg:min-h-0">
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+                          <div className="min-w-0 pt-2">
+                            <PriceCalendar
+                              apartmentId={apartments?.[0]?.id || 1}
+                              events={events}
+                              enabledEvents={enabledEvents}
+                              scrollMode="parent"
+                            />
+                          </div>
+                        </div>
+                      </div>
 
-              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                <div className="mb-2 shrink-0 text-sm font-semibold text-gray-700">
-                  {apartments?.[1]?.name || "Квартира 2"}
+                      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden lg:min-h-0">
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+                          <div className="min-w-0 pt-2">
+                            <PriceCalendar
+                              apartmentId={apartments?.[1]?.id || 2}
+                              events={events}
+                              enabledEvents={enabledEvents}
+                              scrollMode="parent"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="min-h-0 flex-1">
-                  <PriceCalendar
-                    apartmentId={apartments?.[1]?.id || 2}
-                    events={events}
-                    enabledEvents={enabledEvents}
-                  />
                 </div>
               </div>
             </div>
@@ -1996,8 +2173,8 @@ export default function App() {
 
           {bookingModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-              <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-                <div className="mb-5 border-b border-gray-200 pb-4">
+              <div className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+                <div className="shrink-0 border-b border-gray-200 p-6">
                   <h2 className="text-lg font-semibold text-gray-900">
                     {bookingModal.bookingId != null
                       ? "Редактировать бронь"
@@ -2008,7 +2185,7 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="space-y-4">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
                   <section className="space-y-3 rounded-xl bg-gray-50 p-4">
                     <h3 className="text-sm font-bold text-gray-800">
                       📅 Даты
@@ -2274,7 +2451,7 @@ export default function App() {
                   </section>
                 </div>
 
-                <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-4">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-gray-200 bg-white p-6">
                   <div>
                     {bookingModal.bookingId != null && (
                       <button
