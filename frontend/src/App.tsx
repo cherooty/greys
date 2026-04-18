@@ -1317,7 +1317,14 @@ export default function App() {
                                 );
 
                                 return (
-                                  <React.Fragment key={day}>
+                                  <div
+                                    key={day}
+                                    className="box-border grid gap-x-2 border-b border-gray-200"
+                                    style={{
+                                      gridColumn: "1 / -1",
+                                      gridTemplateColumns: `120px repeat(${apartments.length}, minmax(72px, 1fr))`,
+                                    }}
+                                  >
                                     <div
                                       className={
                                         leftDateCellClasses(sem) +
@@ -1404,17 +1411,24 @@ export default function App() {
                                         : null;
                                       const isSegmentStart =
                                         segment != null && day === segment.firstDay;
+                                      const staySpanNights = booking
+                                        ? bookingCalendarStaySpanDays(
+                                            booking.check_in_date,
+                                            booking.check_out_date,
+                                          )
+                                        : 0;
                                       const isBooked = bookingsHereAny.length > 0;
                                       const entry = priceMap[apt.id]?.[day];
                                       const price = entry?.price;
                                       const blocked = entry?.is_blocked === true;
-                                      const calendarBarRem =
+                                      const barRemBase =
                                         booking && segment && isSegmentStart
                                           ? bookingCalendarBarVerticalRem(
                                               booking,
                                               segment.span,
                                             )
                                           : null;
+                                      const calendarBarRem = barRemBase;
 
                                       return (
                                         <div
@@ -1538,9 +1552,28 @@ export default function App() {
                                             });
                                           }}
                                           onClick={(e) => {
-                                            if (!booking) return;
+                                            if (booking) {
+                                              e.stopPropagation();
+                                              openBookingModalForEdit(booking);
+                                              return;
+                                            }
                                             e.stopPropagation();
-                                            openBookingModalForEdit(booking);
+                                            setBookingModal({
+                                              apartmentId: apt.id,
+                                              start: day,
+                                              end: isoAddDays(day, 1),
+                                              bookingId: undefined,
+                                            });
+                                            setFormData({
+                                              guest_name: "",
+                                              total_price: "",
+                                              check_in_time: "",
+                                              check_out_time: "",
+                                              notes: "",
+                                              source: "manual",
+                                            });
+                                            setSelection(null);
+                                            setContextMenu(null);
                                           }}
                                         >
                                           {calendarBarRem != null ? (
@@ -1551,11 +1584,19 @@ export default function App() {
                                                   ? " rounded-2xl"
                                                   : " rounded-t-2xl rounded-b-2xl")
                                               }
-                                              style={{
-                                                maxHeight: `${segment.span * ROW_HEIGHT}rem`,
-                                                top: `${calendarBarRem.topRem}rem`,
-                                                height: `${calendarBarRem.heightRem}rem`,
-                                              }}
+                                              style={
+                                                staySpanNights === 1
+                                                  ? {
+                                                      maxHeight: `${ROW_HEIGHT}rem`,
+                                                      top: 0,
+                                                      height: `${ROW_HEIGHT}rem`,
+                                                    }
+                                                  : {
+                                                      maxHeight: `${calendarBarRem.heightRem}rem`,
+                                                      top: `${calendarBarRem.topRem}rem`,
+                                                      height: `${calendarBarRem.heightRem}rem`,
+                                                    }
+                                              }
                                               title={
                                                 [
                                                   bookingBlockLine1(booking),
@@ -1578,7 +1619,9 @@ export default function App() {
                                           {bookingsHere.length === 0 &&
                                           !blocked &&
                                           price != null ? (
-                                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                            <div
+                                              className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                                            >
                                               <span className="text-sm font-medium text-gray-800">
                                                 {formatPrice(price)} ₽
                                               </span>
@@ -1587,10 +1630,43 @@ export default function App() {
                                         </div>
                                       );
                                     })}
-                                  </React.Fragment>
+                                  </div>
                                 );
                               })}
                           </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="shrink-0 border-t border-gray-100 px-1 pb-3 pt-2">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-gray-700">
+                        {sources.map((s) => (
+                          <label
+                            key={s.id}
+                            className="inline-flex cursor-pointer items-center gap-1.5 select-none"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={s.enabled}
+                              onChange={() =>
+                                setSources((prev) =>
+                                  prev.map((x) =>
+                                    x.id === s.id
+                                      ? { ...x, enabled: !x.enabled }
+                                      : x,
+                                  ),
+                                )
+                              }
+                              className="rounded border-gray-300"
+                            />
+                            <span
+                              className={
+                                "h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-black/10 " +
+                                s.color
+                              }
+                              aria-hidden
+                            />
+                            <span>{s.name}</span>
+                          </label>
                         ))}
                       </div>
                     </div>
@@ -1708,7 +1784,11 @@ export default function App() {
                             method: "DELETE",
                           },
                         )
-                          .then(() => {
+                          .then((res) => {
+                            if (!res.ok) {
+                              console.error("DELETE booking failed", res.status);
+                              return;
+                            }
                             setBookings((prev) =>
                               prev
                                 ? prev.filter((b) => b.id !== booking.id)
