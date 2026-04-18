@@ -60,6 +60,25 @@ const INITIAL_SOURCES: Source[] = [
   },
 ];
 
+function formatRubMoney(amount: number | null | undefined): string {
+  if (amount == null || Number.isNaN(amount)) return "—";
+  const s = Math.round(amount)
+    .toLocaleString("ru-RU", { maximumFractionDigits: 0 })
+    .replace(/\u00a0/g, " ");
+  return `${s} ₽`;
+}
+
+function digitsOnlyRub(s: string): string {
+  return s.replace(/[^\d]/g, "");
+}
+
+function rubDigitsToDisplay(digits: string): string {
+  if (!digits) return "";
+  const n = Number(digits);
+  if (Number.isNaN(n)) return "";
+  return formatRubMoney(n);
+}
+
 type EventItem = {
   id: string;
   date: string;
@@ -660,6 +679,17 @@ export default function App() {
     startX: number;
     startWidth: number;
   } | null>(null);
+
+  const [avitoSurchargeDigits, setAvitoSurchargeDigits] = useState({
+    cleaning: "",
+    adult: "",
+    child: "",
+    pet: "",
+  });
+  const [avitoDiscountRows, setAvitoDiscountRows] = useState<
+    { id: string; nights: string; percent: string }[]
+  >([]);
+  const [avitoCommissionPct, setAvitoCommissionPct] = useState("17");
 
   const popupRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1939,11 +1969,152 @@ export default function App() {
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white p-5 shadow">
                   <h3 className="text-base font-semibold text-gray-900">
-                    Настройки источника «{activeSource.name}»
+                    Настройки «{activeSource.name}»
                   </h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Скоро здесь появятся параметры.
-                  </p>
+                  {activeSourceId === "avito" ? (
+                    <div className="mt-4 space-y-5 border-t border-gray-100 pt-4">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Доплаты
+                        </div>
+                        <div className="mt-2 flex flex-col gap-2">
+                          {(
+                            [
+                              ["cleaning", "Уборка после проживания"],
+                              ["adult", "Доплата за взрослого"],
+                              ["child", "Доплата за ребёнка"],
+                              ["pet", "Доплата за питомца"],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <label
+                              key={key}
+                              className="flex items-center justify-between gap-3 text-sm"
+                            >
+                              <span className="text-gray-600">{label}</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                className="w-36 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+                                value={rubDigitsToDisplay(
+                                  avitoSurchargeDigits[key],
+                                )}
+                                onChange={(e) =>
+                                  setAvitoSurchargeDigits((p) => ({
+                                    ...p,
+                                    [key]: digitsOnlyRub(e.target.value),
+                                  }))
+                                }
+                                aria-label={label}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Скидки
+                        </div>
+                        <div className="mt-2 flex flex-col gap-2">
+                          {avitoDiscountRows.map((row) => (
+                            <div
+                              key={row.id}
+                              className="flex flex-wrap items-center gap-2 text-sm"
+                            >
+                              <span className="text-gray-500">от</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-center text-sm tabular-nums"
+                                placeholder="ночей"
+                                value={row.nights}
+                                onChange={(e) =>
+                                  setAvitoDiscountRows((prev) =>
+                                    prev.map((r) =>
+                                      r.id === row.id
+                                        ? {
+                                            ...r,
+                                            nights: digitsOnlyRub(
+                                              e.target.value,
+                                            ),
+                                          }
+                                        : r,
+                                    ),
+                                  )
+                                }
+                              />
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-center text-sm tabular-nums"
+                                placeholder="%"
+                                value={row.percent}
+                                onChange={(e) =>
+                                  setAvitoDiscountRows((prev) =>
+                                    prev.map((r) =>
+                                      r.id === row.id
+                                        ? {
+                                            ...r,
+                                            percent: e.target.value
+                                              .replace(/[^\d.,]/g, "")
+                                              .replace(",", "."),
+                                          }
+                                        : r,
+                                    ),
+                                  )
+                                }
+                              />
+                              <span className="text-gray-500">%</span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="mt-2 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-400 hover:bg-gray-50"
+                          onClick={() =>
+                            setAvitoDiscountRows((prev) => [
+                              ...prev,
+                              {
+                                id: `${Date.now()}-${prev.length}`,
+                                nights: "",
+                                percent: "",
+                              },
+                            ])
+                          }
+                        >
+                          + Добавить
+                        </button>
+                      </div>
+                      <div>
+                        <label className="flex items-center justify-between gap-3 text-sm">
+                          <span className="text-gray-600">
+                            Комиссия сайта (%)
+                          </span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            className="w-24 rounded-lg border border-gray-200 px-2 py-1.5 text-right text-sm tabular-nums"
+                            value={avitoCommissionPct}
+                            onChange={(e) =>
+                              setAvitoCommissionPct(
+                                e.target.value
+                                  .replace(/[^\d.,]/g, "")
+                                  .replace(",", "."),
+                              )
+                            }
+                            aria-label="Комиссия сайта в процентах"
+                          />
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        Остальные параметры настраиваются в личном кабинете
+                        Авито.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-sm text-gray-500">
+                      Скоро здесь появятся параметры.
+                    </p>
+                  )}
                   <div className="mt-4">
                     <SourceCard
                       source={activeSource}
