@@ -552,10 +552,22 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES);
+  const [activeSourceId, setActiveSourceId] = useState<string>(
+    INITIAL_SOURCES[0].id,
+  );
   // TEMP: sync sources with INITIAL_SOURCES for dev
   useEffect(() => {
     setSources(INITIAL_SOURCES);
   }, []);
+
+  useEffect(() => {
+    if (!sources.some((s) => s.id === activeSourceId)) {
+      setActiveSourceId(sources[0]?.id ?? INITIAL_SOURCES[0].id);
+    }
+  }, [sources, activeSourceId]);
+
+  const activeSource =
+    sources.find((s) => s.id === activeSourceId) ?? sources[0];
 
   const [priceMap, setPriceMap] = useState<
     Record<number, Record<string, { price: number | null; is_blocked: boolean }>>
@@ -1907,11 +1919,34 @@ export default function App() {
           {activeTab === "sources" && (
             <>
               <h2 className="text-xl font-semibold mb-4">Источники</h2>
-              <div className="flex max-w-lg flex-col gap-4">
-                {sources.map((s) => (
-                  <div key={s.id}>
+              <div className="max-w-2xl">
+                <div className="mb-4 flex flex-wrap gap-1 border-b border-gray-200">
+                  {sources.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setActiveSourceId(s.id)}
+                      className={
+                        "rounded-t-lg border border-b-0 px-3 py-1.5 text-sm font-medium transition-colors " +
+                        (s.id === activeSourceId
+                          ? "-mb-px border-gray-200 bg-white text-gray-900"
+                          : "border-transparent bg-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900")
+                      }
+                    >
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-5 shadow">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    Настройки источника «{activeSource.name}»
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Скоро здесь появятся параметры.
+                  </p>
+                  <div className="mt-4">
                     <SourceCard
-                      source={s}
+                      source={activeSource}
                       onEnabledChange={(id, enabled) =>
                         setSources((prev) =>
                           prev.map((x) =>
@@ -1928,7 +1963,7 @@ export default function App() {
                       }
                     />
                   </div>
-                ))}
+                </div>
               </div>
             </>
           )}
