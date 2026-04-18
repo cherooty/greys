@@ -16,6 +16,7 @@ from app.models.base import Base
 from app.models import apartment  # noqa: F401
 from app.models.booking import Booking  # noqa: F401
 from app.models.price_calendar import PriceCalendar  # noqa: F401
+from app.models.source_setting import SourceSetting  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

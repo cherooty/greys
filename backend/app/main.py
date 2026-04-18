@@ -3,10 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import engine
 from app.models.base import Base
-from app.models import apartment, price_calendar  # noqa: F401 — price_calendar: metadata
+from app.models import apartment, price_calendar, source_setting  # noqa: F401 — metadata
 
 # импорт роутеров
-from app.api.endpoints import apartments, bookings
+from app.api.endpoints import apartments, bookings, source_settings
 from app.api import price_calendar
 
 app = FastAPI(title="Greys API")
@@ -32,6 +32,11 @@ app.include_router(
     price_calendar.router,
     prefix="/api/price-calendar",
     tags=["price-calendar"],
+)
+app.include_router(
+    source_settings.router,
+    prefix="/api/source-settings",
+    tags=["source-settings"],
 )
 
 

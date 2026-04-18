@@ -695,6 +695,27 @@ export default function App() {
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const calendarAreaRef = useRef<HTMLDivElement | null>(null);
   const chessBoardPriceModalRef = useRef<HTMLDivElement | null>(null);
+  const sourceSettingsLoadedRef = useRef(false);
+
+  async function saveActiveSourceSettings() {
+    let settings: Record<string, unknown> = {};
+    if (activeSourceId === "avito") {
+      settings = {
+        surcharges: { ...avitoSurchargeDigits },
+        discountRows: avitoDiscountRows,
+        commissionPct: avitoCommissionPct,
+      };
+    }
+    const res = await fetch(
+      `${API_BASE}/api/source-settings/${encodeURIComponent(activeSourceId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings }),
+      },
+    );
+    if (!res.ok) alert("Не удалось сохранить настройки");
+  }
 
   function openBookingModalFromSelection(apartmentId: number) {
     if (!selection) return;
@@ -973,6 +994,62 @@ export default function App() {
       return s !== undefined && s.enabled;
     });
   }, [bookings, sources]);
+
+  useEffect(() => {
+    if (activeTab !== "sources") return;
+    if (sourceSettingsLoadedRef.current) return;
+    sourceSettingsLoadedRef.current = true;
+
+    fetch(`${API_BASE}/api/source-settings`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((rows: { source_id: string; settings: Record<string, unknown> }[]) => {
+        for (const row of rows) {
+          if (row.source_id !== "avito") continue;
+          const s = row.settings;
+          if (!s || typeof s !== "object") continue;
+          const sur = (s as { surcharges?: unknown }).surcharges;
+          if (sur && typeof sur === "object") {
+            const u = sur as Record<string, unknown>;
+            setAvitoSurchargeDigits({
+              cleaning:
+                typeof u.cleaning === "string" ? digitsOnlyRub(u.cleaning) : "",
+              adult: typeof u.adult === "string" ? digitsOnlyRub(u.adult) : "",
+              child: typeof u.child === "string" ? digitsOnlyRub(u.child) : "",
+              pet: typeof u.pet === "string" ? digitsOnlyRub(u.pet) : "",
+            });
+          }
+          const dr = (s as { discountRows?: unknown }).discountRows;
+          if (Array.isArray(dr)) {
+            setAvitoDiscountRows(
+              dr
+                .filter(
+                  (x): x is Record<string, unknown> =>
+                    x != null && typeof x === "object",
+                )
+                .map((x, i) => ({
+                  id:
+                    typeof x.id === "string" && x.id.length > 0
+                      ? x.id
+                      : `d-${i}-${Date.now()}`,
+                  nights:
+                    typeof x.nights === "string" ? digitsOnlyRub(x.nights) : "",
+                  percent:
+                    typeof x.percent === "string"
+                      ? x.percent.replace(/[^\d.,]/g, "").replace(",", ".")
+                      : "",
+                })),
+            );
+          }
+          if ("commissionPct" in s) {
+            const cp = (s as { commissionPct?: unknown }).commissionPct;
+            setAvitoCommissionPct(
+              typeof cp === "string" && cp.length > 0 ? cp : "17",
+            );
+          }
+        }
+      })
+      .catch(() => {});
+  }, [activeTab]);
 
   function handleBookingsSort(field: string) {
     if (sortField === field) {
@@ -1968,11 +2045,20 @@ export default function App() {
                   ))}
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white p-5 shadow">
-                  <h3 className="text-base font-semibold text-gray-900">
-                    Настройки «{activeSource.name}»
-                  </h3>
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      Настройки «{activeSource.name}»
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => void saveActiveSourceSettings()}
+                      className="shrink-0 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
                   {activeSourceId === "avito" ? (
-                    <div className="mt-4 space-y-5 border-t border-gray-100 pt-4">
+                    <div className="mt-4 space-y-5">
                       <div>
                         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                           Доплаты
@@ -2111,7 +2197,7 @@ export default function App() {
                       </p>
                     </div>
                   ) : (
-                    <p className="mt-1 text-sm text-gray-500">
+                    <p className="mt-3 text-sm text-gray-500">
                       Скоро здесь появятся параметры.
                     </p>
                   )}
