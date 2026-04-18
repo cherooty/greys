@@ -318,6 +318,55 @@ function bookingBlockLine2(b: Booking): string | null {
   return chunks.join(" · ");
 }
 
+function bookingComputedOwnerHandAmount(
+  totalPrice: number | null | undefined,
+  source: string | undefined,
+  avitoCommissionPct: string,
+): number | null {
+  if (totalPrice == null) return null;
+  const total = Number(totalPrice);
+  if (Number.isNaN(total)) return null;
+  const src = source ?? "";
+  if (src === "avito") {
+    const pct = Number(String(avitoCommissionPct).replace(",", "."));
+    const pctN = Number.isNaN(pct) ? 17 : Math.min(100, Math.max(0, pct));
+    return total - (total * pctN) / 100;
+  }
+  return total;
+}
+
+function formatPlusRubChessboard(amount: number): string {
+  const formatted = amount
+    .toLocaleString("ru-RU", { maximumFractionDigits: 20 })
+    .replace(/\u00a0/g, " ");
+  return `+ ${formatted} ₽`;
+}
+
+/** «Мне на руки» в ячейке: сохранённый owner_price или расчёт от total_price. */
+function bookingChessboardGuestHandLabel(
+  booking: Booking,
+  avitoCommissionPct: string,
+): string | null {
+  if (booking.owner_price != null) {
+    const o = Number(booking.owner_price);
+    if (!Number.isNaN(o)) return formatPlusRubChessboard(o);
+  }
+  const computed = bookingComputedOwnerHandAmount(
+    booking.total_price,
+    booking.source,
+    avitoCommissionPct,
+  );
+  if (computed == null || Number.isNaN(computed)) return null;
+  return formatPlusRubChessboard(computed);
+}
+
+function parseOwnerHandInput(s: string): number | null {
+  const t = s.trim().replace(/\s/g, "").replace(",", ".");
+  if (t === "" || t === "-") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 function bookingNightCountForModal(startIso: string, endIso: string): number {
   const a = new Date(startIso + "T12:00:00");
   const b = new Date(endIso + "T12:00:00");
@@ -650,11 +699,15 @@ export default function App() {
   const [formData, setFormData] = useState({
     guest_name: "",
     total_price: "",
+    owner_price: "",
     check_in_time: "",
     check_out_time: "",
     notes: "",
     source: "manual",
   });
+
+  const [ownerHandDirty, setOwnerHandDirty] = useState(false);
+  const savedOwnerWasNullRef = useRef(true);
 
   const [sortField, setSortField] = useState<string>("check_in_date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -731,9 +784,12 @@ export default function App() {
       end: checkOut,
       bookingId: undefined,
     });
+    setOwnerHandDirty(false);
+    savedOwnerWasNullRef.current = true;
     setFormData({
       guest_name: "",
       total_price: "",
+      owner_price: "",
       check_in_time: "",
       check_out_time: "",
       notes: "",
@@ -749,9 +805,23 @@ export default function App() {
       start: b.check_in_date,
       end: b.check_out_date,
     });
+    const handStrForOpen =
+      b.owner_price != null
+        ? String(b.owner_price)
+        : (() => {
+            const c = bookingComputedOwnerHandAmount(
+              b.total_price,
+              b.source,
+              avitoCommissionPct,
+            );
+            return c != null ? String(c) : "";
+          })();
+    savedOwnerWasNullRef.current = b.owner_price == null;
+    setOwnerHandDirty(false);
     setFormData({
       guest_name: b.guest_name ?? "",
       total_price: b.total_price != null ? String(b.total_price) : "",
+      owner_price: handStrForOpen,
       check_in_time: b.check_in_time ?? "",
       check_out_time: b.check_out_time ?? "",
       notes: b.notes ?? "",
@@ -763,6 +833,29 @@ export default function App() {
     setSelection(null);
     setContextMenu(null);
   }
+
+  useEffect(() => {
+    if (!bookingModal) return;
+    if (ownerHandDirty) return;
+    if (bookingModal.bookingId != null && !savedOwnerWasNullRef.current) return;
+    setFormData((p) => {
+      const t = Number(p.total_price);
+      const hand = bookingComputedOwnerHandAmount(
+        Number.isFinite(t) ? t : null,
+        p.source,
+        avitoCommissionPct,
+      );
+      const next = hand != null ? String(hand) : "";
+      if (p.owner_price === next) return p;
+      return { ...p, owner_price: next };
+    });
+  }, [
+    bookingModal,
+    formData.total_price,
+    formData.source,
+    avitoCommissionPct,
+    ownerHandDirty,
+  ]);
 
   useEffect(() => {
     if (!editModal) return;
@@ -1683,9 +1776,12 @@ export default function App() {
                                               end: isoAddDays(day, 1),
                                               bookingId: undefined,
                                             });
+                                            setOwnerHandDirty(false);
+                                            savedOwnerWasNullRef.current = true;
                                             setFormData({
                                               guest_name: "",
                                               total_price: "",
+                                              owner_price: "",
                                               check_in_time: "",
                                               check_out_time: "",
                                               notes: "",
@@ -1696,9 +1792,17 @@ export default function App() {
                                           }}
                                         >
                                           {calendarBarRem != null ? (
+                                            (() => {
+                                              const guestHandLabel =
+                                                bookingChessboardGuestHandLabel(
+                                                  booking,
+                                                  avitoCommissionPct,
+                                                );
+                                              return (
                                             <div
                                               className={
                                                 calendarBookingBarClasses(booking) +
+                                                (guestHandLabel ? " pr-8 " : "") +
                                                 (segment.span === 1
                                                   ? " rounded-2xl"
                                                   : " rounded-t-2xl rounded-b-2xl")
@@ -1725,6 +1829,14 @@ export default function App() {
                                                   .join("\n") || undefined
                                               }
                                             >
+                                              {guestHandLabel ? (
+                                                <span
+                                                  className="pointer-events-none absolute right-0.5 top-0.5 z-[2] max-w-[58%] truncate text-right text-xs font-semibold leading-none text-green-700"
+                                                  title="Мне на руки"
+                                                >
+                                                  {guestHandLabel}
+                                                </span>
+                                              ) : null}
                                               <span className="block w-full truncate text-xs leading-tight">
                                                 {bookingBlockLine1(booking)}
                                               </span>
@@ -1734,6 +1846,8 @@ export default function App() {
                                                 </span>
                                               ) : null}
                                             </div>
+                                              );
+                                            })()
                                           ) : null}
                                           {bookingsHere.length === 0 &&
                                           !blocked &&
@@ -2736,17 +2850,11 @@ export default function App() {
                         bookingModal.end,
                       );
                       const nightsClamped = Math.max(1, nights);
-                      const editingBooking =
-                        bookingModal.bookingId != null
-                          ? bookings?.find((b) => b.id === bookingModal.bookingId)
-                          : undefined;
-                      const ownerTotal = editingBooking?.owner_price;
+                      const ownerFromForm = Number(formData.owner_price);
                       const guestTotal = Number(formData.total_price || 0);
-                      const ownerNum =
-                        ownerTotal != null ? Number(ownerTotal) : NaN;
                       const ownerPerNight =
-                        Number.isFinite(ownerNum) && ownerNum > 0
-                          ? Math.round(ownerNum / nightsClamped)
+                        Number.isFinite(ownerFromForm) && ownerFromForm > 0
+                          ? Math.round(ownerFromForm / nightsClamped)
                           : null;
                       const guestPerNight =
                         guestTotal > 0
@@ -2762,12 +2870,17 @@ export default function App() {
                               </span>
                               <input
                                 placeholder="Мои деньги"
-                                className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-right text-sm text-gray-500"
-                                disabled
-                                readOnly
-                                value={
-                                  ownerTotal != null ? String(ownerTotal) : ""
-                                }
+                                className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-right text-sm text-gray-900"
+                                inputMode="decimal"
+                                value={formData.owner_price}
+                                onChange={(e) => {
+                                  setOwnerHandDirty(true);
+                                  setFormData({
+                                    ...formData,
+                                    owner_price: e.target.value,
+                                  });
+                                }}
+                                aria-label="Мне на руки"
                               />
                             </div>
                             {ownerPerNight != null ? (
@@ -2903,6 +3016,7 @@ export default function App() {
                         check_out_date: bookingModal.end,
                         guest_name: formData.guest_name,
                         total_price: Number(formData.total_price || 0),
+                        owner_price: parseOwnerHandInput(formData.owner_price),
                         currency: "RUB",
                         check_in_time: formData.check_in_time.trim()
                           ? formData.check_in_time

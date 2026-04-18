@@ -115,6 +115,7 @@ def update_booking_dates(
     booking.check_out_date = body.check_out_date
     booking.guest_name = body.guest_name
     booking.total_price = body.total_price
+    booking.owner_price = body.owner_price
     booking.currency = body.currency
     booking.check_in_time = body.check_in_time
     booking.check_out_time = body.check_out_time

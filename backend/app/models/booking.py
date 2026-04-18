@@ -27,6 +27,7 @@ class Booking(Base):
     check_out_time = Column(String, nullable=True)
 
     total_price = Column(Float, nullable=False)
+    owner_price = Column(Float, nullable=True)
     currency = Column(String, nullable=False, default="RUB")
 
     status = Column(String, nullable=False, default="confirmed")

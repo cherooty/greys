@@ -12,6 +12,7 @@ class BookingBase(BaseModel):
     check_in_time: str | None = None
     check_out_time: str | None = None
     total_price: float
+    owner_price: float | None = None
     currency: str = "RUB"
     status: str = "confirmed"
     source: str = "manual"
@@ -29,6 +30,7 @@ class BookingUpdate(BaseModel):
     check_out_date: date
     guest_name: str
     total_price: float
+    owner_price: float | None = None
     currency: str = "RUB"
     check_in_time: str | None = None
     check_out_time: str | None = None
