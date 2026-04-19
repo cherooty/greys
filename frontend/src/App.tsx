@@ -216,6 +216,69 @@ function formatDateRU(iso: string) {
   ).padStart(2, "0")}.${d.getFullYear()}`;
 }
 
+function isoYmdToRuDmy(iso: string): string {
+  const t = iso.trim();
+  const head = (t.split("T")[0] ?? t).split(" ")[0] ?? t;
+  const p = head.split("-");
+  if (p.length !== 3) return "";
+  const y = Number(p[0]);
+  const mo = Number(p[1]);
+  const d = Number(p[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d))
+    return "";
+  return `${String(d).padStart(2, "0")}/${String(mo).padStart(2, "0")}/${y}`;
+}
+
+function parseRuDmyToIsoYmd(s: string): string | null {
+  const m = s.trim().match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+  if (!m) return null;
+  const d = Number(m[1]);
+  const mo = Number(m[2]);
+  const y = Number(m[3]);
+  if (!Number.isFinite(d) || !Number.isFinite(mo) || !Number.isFinite(y))
+    return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return isoYmdToOrdinalDay(iso) > 0 ? iso : null;
+}
+
+function normalizeTimeHhMm(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  const m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return "";
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (
+    !Number.isFinite(h) ||
+    !Number.isFinite(min) ||
+    h < 0 ||
+    h > 23 ||
+    min < 0 ||
+    min > 59
+  )
+    return "";
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function ruAdultsChildrenSummary(adults: number, children: number): string {
+  const a =
+    adults === 1
+      ? "1 взрослый"
+      : adults >= 2 && adults <= 4
+        ? `${adults} взрослых`
+        : `${adults} взрослых`;
+  const c =
+    children === 0
+      ? "0 детей"
+      : children === 1
+        ? "1 ребёнок"
+        : children >= 2 && children <= 4
+          ? `${children} ребёнка`
+          : `${children} детей`;
+  return `${a} • ${c}`;
+}
+
 function formatBookingRange(start: string, end: string) {
   const s = new Date(start + "T12:00:00");
   const e = new Date(end + "T12:00:00");
@@ -365,6 +428,32 @@ function parseOwnerHandInput(s: string): number | null {
   if (t === "" || t === "-") return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
+}
+
+function normalizeOwnerPriceForBlurFormat(s: string): string {
+  let v = s.replace(/\s/g, "").replace(",", ".");
+  const neg = v.startsWith("-");
+  if (neg) v = v.slice(1);
+  v = v.replace(/[^\d.]/g, "");
+  const d = v.indexOf(".");
+  if (d !== -1) {
+    v = v.slice(0, d + 1) + v.slice(d + 1).replace(/\./g, "");
+  }
+  return (neg ? "-" : "") + v;
+}
+
+function fmtOwnerPriceThousandsForInput(raw: string): string {
+  if (raw === "" || raw === "-") return raw;
+  const neg = raw.startsWith("-");
+  const u = neg ? raw.slice(1) : raw;
+  const dot = u.indexOf(".");
+  const intPart = dot === -1 ? u : u.slice(0, dot);
+  const frac = dot === -1 ? undefined : u.slice(dot + 1);
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  if (frac !== undefined) {
+    return (neg ? "-" : "") + grouped + "." + frac;
+  }
+  return (neg ? "-" : "") + grouped;
 }
 
 function bookingNightCountForModal(startIso: string, endIso: string): number {
@@ -764,6 +853,18 @@ export default function App() {
     source: "manual",
   });
 
+  const [bookingModalMain, setBookingModalMain] = useState({
+    dmyStart: "",
+    dmyEnd: "",
+    adults: 1,
+    children: 0,
+    phone: "",
+    contactTg: false,
+    contactMax: false,
+    contactWa: false,
+    contactVk: false,
+  });
+
   const [ownerHandDirty, setOwnerHandDirty] = useState(false);
   const savedOwnerWasNullRef = useRef(true);
 
@@ -807,6 +908,8 @@ export default function App() {
   const calendarAreaRef = useRef<HTMLDivElement | null>(null);
   const chessBoardPriceModalRef = useRef<HTMLDivElement | null>(null);
   const sourceSettingsLoadedRef = useRef(false);
+  const bookingDateStartRef = useRef<HTMLInputElement | null>(null);
+  const bookingDateEndRef = useRef<HTMLInputElement | null>(null);
 
   async function saveActiveSourceSettings() {
     let settings: Record<string, unknown> = {};
@@ -853,6 +956,16 @@ export default function App() {
       notes: "",
       source: "manual",
     });
+    setBookingModalMain((p) => ({
+      ...p,
+      adults: 1,
+      children: 0,
+      phone: "",
+      contactTg: false,
+      contactMax: false,
+      contactWa: false,
+      contactVk: false,
+    }));
     setContextMenu(null);
   }
 
@@ -888,9 +1001,28 @@ export default function App() {
           ? b.source
           : "manual",
     });
+    setBookingModalMain((p) => ({
+      ...p,
+      adults: Math.max(1, b.guests_count ?? 1),
+      children: 0,
+      phone: "",
+      contactTg: false,
+      contactMax: false,
+      contactWa: false,
+      contactVk: false,
+    }));
     setSelection(null);
     setContextMenu(null);
   }
+
+  useEffect(() => {
+    if (!bookingModal) return;
+    setBookingModalMain((p) => ({
+      ...p,
+      dmyStart: isoYmdToRuDmy(bookingModal.start),
+      dmyEnd: isoYmdToRuDmy(bookingModal.end),
+    }));
+  }, [bookingModal?.start, bookingModal?.end]);
 
   useEffect(() => {
     if (!bookingModal) return;
@@ -1886,6 +2018,16 @@ export default function App() {
                                               notes: "",
                                               source: "manual",
                                             });
+                                            setBookingModalMain((p) => ({
+                                              ...p,
+                                              adults: 1,
+                                              children: 0,
+                                              phone: "",
+                                              contactTg: false,
+                                              contactMax: false,
+                                              contactWa: false,
+                                              contactVk: false,
+                                            }));
                                             setSelection(null);
                                             setContextMenu(null);
                                           }}
@@ -2863,29 +3005,80 @@ export default function App() {
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
+                  <section className="space-y-2 rounded-xl bg-gray-50 p-3">
                     <h3 className="text-sm font-bold text-gray-800">
-                      📅 Даты
+                      Основное
                     </h3>
-                    <div className="space-y-3">
-                      <div>
-                        <div className="mb-1 text-xs font-medium text-gray-600">
-                          Заезд
-                        </div>
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="w-12 shrink-0 text-xs font-medium text-gray-600">
+                            Заезд:
+                          </span>
+                          <div className="flex min-w-0 flex-1 items-center gap-1 sm:max-w-[11rem]">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="ДД/ММ/ГГГГ"
+                              autoComplete="off"
+                              className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                              value={bookingModalMain.dmyStart}
+                              onChange={(e) =>
+                                setBookingModalMain((p) => ({
+                                  ...p,
+                                  dmyStart: e.target.value,
+                                }))
+                              }
+                              onBlur={(e) => {
+                                const iso = parseRuDmyToIsoYmd(
+                                  (e.target as HTMLInputElement).value,
+                                );
+                                if (iso)
+                                  setBookingModal((m) =>
+                                    m ? { ...m, start: iso } : m,
+                                  );
+                                else
+                                  setBookingModalMain((p) => ({
+                                    ...p,
+                                    dmyStart: isoYmdToRuDmy(bookingModal.start),
+                                  }));
+                              }}
+                            />
+                            <input
+                              ref={bookingDateStartRef}
+                              type="date"
+                              className="sr-only"
+                              tabIndex={-1}
+                              value={bookingModal.start.slice(0, 10)}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v)
+                                  setBookingModal((m) =>
+                                    m ? { ...m, start: v } : m,
+                                  );
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                              aria-label="Календарь заезда"
+                              onClick={() => {
+                                const el = bookingDateStartRef.current;
+                                if (!el) return;
+                                if (typeof el.showPicker === "function")
+                                  el.showPicker();
+                                else el.click();
+                              }}
+                            >
+                              📅
+                            </button>
+                          </div>
                           <input
-                            type="date"
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
-                            value={bookingModal.start}
-                            onChange={(e) =>
-                              setBookingModal((m) =>
-                                m ? { ...m, start: e.target.value } : m,
-                              )
-                            }
-                          />
-                          <input
-                            type="time"
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="ЧЧ:ММ"
+                            autoComplete="off"
+                            className="w-[4.75rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm tabular-nums"
                             value={formData.check_in_time || ""}
                             onChange={(e) =>
                               setFormData({
@@ -2893,27 +3086,86 @@ export default function App() {
                                 check_in_time: e.target.value,
                               })
                             }
+                            onBlur={(e) => {
+                              const n = normalizeTimeHhMm(
+                                (e.target as HTMLInputElement).value,
+                              );
+                              setFormData((p) => ({
+                                ...p,
+                                check_in_time: n,
+                              }));
+                            }}
+                            aria-label="Время заезда"
                           />
                         </div>
-                      </div>
-                      <div>
-                        <div className="mb-1 text-xs font-medium text-gray-600">
-                          Выезд
-                        </div>
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="w-12 shrink-0 text-xs font-medium text-gray-600">
+                            Выезд:
+                          </span>
+                          <div className="flex min-w-0 flex-1 items-center gap-1 sm:max-w-[11rem]">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="ДД/ММ/ГГГГ"
+                              autoComplete="off"
+                              className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                              value={bookingModalMain.dmyEnd}
+                              onChange={(e) =>
+                                setBookingModalMain((p) => ({
+                                  ...p,
+                                  dmyEnd: e.target.value,
+                                }))
+                              }
+                              onBlur={(e) => {
+                                const iso = parseRuDmyToIsoYmd(
+                                  (e.target as HTMLInputElement).value,
+                                );
+                                if (iso)
+                                  setBookingModal((m) =>
+                                    m ? { ...m, end: iso } : m,
+                                  );
+                                else
+                                  setBookingModalMain((p) => ({
+                                    ...p,
+                                    dmyEnd: isoYmdToRuDmy(bookingModal.end),
+                                  }));
+                              }}
+                            />
+                            <input
+                              ref={bookingDateEndRef}
+                              type="date"
+                              className="sr-only"
+                              tabIndex={-1}
+                              value={bookingModal.end.slice(0, 10)}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v)
+                                  setBookingModal((m) =>
+                                    m ? { ...m, end: v } : m,
+                                  );
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                              aria-label="Календарь выезда"
+                              onClick={() => {
+                                const el = bookingDateEndRef.current;
+                                if (!el) return;
+                                if (typeof el.showPicker === "function")
+                                  el.showPicker();
+                                else el.click();
+                              }}
+                            >
+                              📅
+                            </button>
+                          </div>
                           <input
-                            type="date"
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
-                            value={bookingModal.end}
-                            onChange={(e) =>
-                              setBookingModal((m) =>
-                                m ? { ...m, end: e.target.value } : m,
-                              )
-                            }
-                          />
-                          <input
-                            type="time"
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="ЧЧ:ММ"
+                            autoComplete="off"
+                            className="w-[4.75rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm tabular-nums"
                             value={formData.check_out_time || ""}
                             onChange={(e) =>
                               setFormData({
@@ -2921,84 +3173,299 @@ export default function App() {
                                 check_out_time: e.target.value,
                               })
                             }
+                            onBlur={(e) => {
+                              const n = normalizeTimeHhMm(
+                                (e.target as HTMLInputElement).value,
+                              );
+                              setFormData((p) => ({
+                                ...p,
+                                check_out_time: n,
+                              }));
+                            }}
+                            aria-label="Время выезда"
                           />
                         </div>
+                        {(() => {
+                          const nightsOwn = Math.max(
+                            1,
+                            bookingNightCountForModal(
+                              bookingModal.start,
+                              bookingModal.end,
+                            ),
+                          );
+                          const handOwn = parseOwnerHandInput(
+                            formData.owner_price,
+                          );
+                          const ownerPerNight =
+                            handOwn != null && Number.isFinite(handOwn)
+                              ? Math.round(handOwn / nightsOwn)
+                              : null;
+                          return (
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Мне на руки:
+                              </span>
+                              <input
+                                placeholder="Мои деньги"
+                                className="w-[6.75rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm font-bold tabular-nums text-green-700"
+                                inputMode="decimal"
+                                value={formData.owner_price}
+                                onChange={(e) => {
+                                  setOwnerHandDirty(true);
+                                  setFormData({
+                                    ...formData,
+                                    owner_price: e.target.value.replace(
+                                      /[^\d\s,.\-]/g,
+                                      "",
+                                    ),
+                                  });
+                                }}
+                                onBlur={() => {
+                                  const raw = normalizeOwnerPriceForBlurFormat(
+                                    formData.owner_price,
+                                  );
+                                  setFormData((p) => ({
+                                    ...p,
+                                    owner_price:
+                                      fmtOwnerPriceThousandsForInput(raw),
+                                  }));
+                                }}
+                                aria-label="Мне на руки"
+                              />
+                              {ownerPerNight != null ? (
+                                <span className="shrink-0 text-xs tabular-nums text-gray-600">
+                                  {ownerPerNight} ₽/сут
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-medium text-gray-600">
+                            Источник
+                          </div>
+                          <select
+                            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                            value={formData.source}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                source: e.target.value,
+                              })
+                            }
+                          >
+                            {(
+                              Object.values(SOURCES) as (typeof SOURCES)[keyof typeof SOURCES][]
+                            ).map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <details className="text-sm">
-                        <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900">
-                          Комментарий к датам
-                        </summary>
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                          <span className="shrink-0 font-medium text-gray-600">
+                            Гостей:
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            className="w-14 rounded-md border border-gray-200 bg-white px-1.5 py-1 text-sm"
+                            value={
+                              bookingModalMain.adults + bookingModalMain.children
+                            }
+                            onChange={(e) => {
+                              const t = Math.max(
+                                1,
+                                Number(e.target.value) || 1,
+                              );
+                              setBookingModalMain((p) => {
+                                const ch = Math.min(
+                                  p.children,
+                                  Math.max(0, t - 1),
+                                );
+                                return {
+                                  ...p,
+                                  adults: Math.max(1, t - ch),
+                                  children: ch,
+                                };
+                              });
+                            }}
+                            aria-label="Всего гостей"
+                          />
+                          <span className="shrink-0 font-medium text-gray-600">
+                            Дети:
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            className="w-14 rounded-md border border-gray-200 bg-white px-1.5 py-1 text-sm"
+                            value={bookingModalMain.children}
+                            onChange={(e) => {
+                              const c = Math.max(
+                                0,
+                                Number(e.target.value) || 0,
+                              );
+                              setBookingModalMain((p) => {
+                                const t = p.adults + p.children;
+                                const ch = Math.min(
+                                  c,
+                                  Math.max(0, t - 1),
+                                );
+                                const ad = Math.max(1, t - ch);
+                                return {
+                                  ...p,
+                                  adults: ad,
+                                  children: t - ad,
+                                };
+                              });
+                            }}
+                            aria-label="Дети"
+                          />
+                        </div>
+                        <p className="text-[11px] leading-tight text-gray-500">
+                          {ruAdultsChildrenSummary(
+                            bookingModalMain.adults,
+                            bookingModalMain.children,
+                          )}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="shrink-0 text-xs font-medium text-gray-600">
+                            Гость:
+                          </span>
+                          <input
+                            placeholder="ФИО"
+                            className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                            value={formData.guest_name}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                guest_name: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="shrink-0 text-xs font-medium text-gray-600">
+                            Телефон:
+                          </span>
+                          <input
+                            type="tel"
+                            inputMode="tel"
+                            autoComplete="tel"
+                            placeholder="+7 …"
+                            className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                            value={bookingModalMain.phone}
+                            onChange={(e) =>
+                              setBookingModalMain((p) => ({
+                                ...p,
+                                phone: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+                          <label className="inline-flex cursor-pointer items-center gap-1">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={bookingModalMain.contactTg}
+                              onChange={(e) =>
+                                setBookingModalMain((p) => ({
+                                  ...p,
+                                  contactTg: e.target.checked,
+                                }))
+                              }
+                            />
+                            Telegram
+                          </label>
+                          <label className="inline-flex cursor-pointer items-center gap-1">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={bookingModalMain.contactWa}
+                              onChange={(e) =>
+                                setBookingModalMain((p) => ({
+                                  ...p,
+                                  contactWa: e.target.checked,
+                                }))
+                              }
+                            />
+                            WhatsApp
+                          </label>
+                          <label className="inline-flex cursor-pointer items-center gap-1">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={bookingModalMain.contactMax}
+                              onChange={(e) =>
+                                setBookingModalMain((p) => ({
+                                  ...p,
+                                  contactMax: e.target.checked,
+                                }))
+                              }
+                            />
+                            Max
+                          </label>
+                          <label className="inline-flex cursor-pointer items-center gap-1">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={bookingModalMain.contactVk}
+                              onChange={(e) =>
+                                setBookingModalMain((p) => ({
+                                  ...p,
+                                  contactVk: e.target.checked,
+                                }))
+                              }
+                            />
+                            VK
+                          </label>
+                        </div>
+                      </div>
+                    <details
+                      key={`bm-notes-${bookingModal.bookingId ?? "new"}-${bookingModal.start}-${bookingModal.end}`}
+                      className="min-w-0 rounded-md border border-gray-200 bg-white md:col-span-2"
+                      defaultOpen={formData.notes.trim().length > 0}
+                    >
+                      <summary className="cursor-pointer list-none px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className="shrink-0 font-mono text-[11px] leading-none text-gray-500"
+                            aria-hidden
+                          >
+                            ▸
+                          </span>
+                          <span className="shrink-0">Коммент</span>
+                          {formData.notes.trim() ? (
+                            <span
+                              className="min-w-0 truncate font-normal text-gray-500"
+                              title={formData.notes.trim()}
+                            >
+                              · {formData.notes.trim().slice(0, 60)}
+                              {formData.notes.trim().length > 60 ? "…" : ""}
+                            </span>
+                          ) : null}
+                        </span>
+                      </summary>
+                      <div className="px-2 pb-2">
                         <textarea
                           rows={2}
-                          readOnly
-                          className="mt-2 w-full resize-none rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                          placeholder="—"
-                          value=""
-                        />
-                      </details>
-                    </div>
-                  </section>
-
-                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
-                    <h3 className="text-sm font-bold text-gray-800">
-                      👤 Гости
-                    </h3>
-                    <div className="space-y-2">
-                      <input
-                        placeholder="ФИО гостя"
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                        value={formData.guest_name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, guest_name: e.target.value })
-                        }
-                      />
-                      <input
-                        type="number"
-                        min={1}
-                        placeholder="Кол-во гостей"
-                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                        disabled
-                        readOnly
-                        value=""
-                      />
-                      <input
-                        type="tel"
-                        placeholder="Телефон"
-                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                        disabled
-                        readOnly
-                        value=""
-                      />
-                      <input
-                        placeholder="Мессенджер"
-                        className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                        disabled
-                        readOnly
-                        value=""
-                      />
-                      <div>
-                        <div className="mb-1 text-xs font-medium text-gray-600">
-                          Источник
-                        </div>
-                        <select
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                          value={formData.source}
+                          className="mt-1 w-full min-w-0 resize-none rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900"
+                          placeholder="Комментарий"
+                          value={formData.notes}
                           onChange={(e) =>
                             setFormData({
                               ...formData,
-                              source: e.target.value,
+                              notes: e.target.value,
                             })
                           }
-                        >
-                          {(
-                            Object.values(SOURCES) as (typeof SOURCES)[keyof typeof SOURCES][]
-                          ).map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </select>
+                          aria-label="Комментарий к брони"
+                        />
                       </div>
+                    </details>
                     </div>
                   </section>
 
@@ -3012,45 +3479,14 @@ export default function App() {
                         bookingModal.end,
                       );
                       const nightsClamped = Math.max(1, nights);
-                      const ownerFromForm = Number(formData.owner_price);
                       const guestTotal = Number(formData.total_price || 0);
-                      const ownerPerNight =
-                        Number.isFinite(ownerFromForm) && ownerFromForm > 0
-                          ? Math.round(ownerFromForm / nightsClamped)
-                          : null;
                       const guestPerNight =
                         guestTotal > 0
                           ? Math.round(guestTotal / nightsClamped)
                           : null;
                       const curSym = bookingCurrencySymbol("RUB");
                       return (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="flex min-w-0 flex-col gap-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="shrink-0 text-xs font-medium text-gray-600">
-                                Мне на руки
-                              </span>
-                              <input
-                                placeholder="Мои деньги"
-                                className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-right text-sm text-gray-900"
-                                inputMode="decimal"
-                                value={formData.owner_price}
-                                onChange={(e) => {
-                                  setOwnerHandDirty(true);
-                                  setFormData({
-                                    ...formData,
-                                    owner_price: e.target.value,
-                                  });
-                                }}
-                                aria-label="Мне на руки"
-                              />
-                            </div>
-                            {ownerPerNight != null ? (
-                              <p className="mt-1 text-sm text-gray-500">
-                                {ownerPerNight} {curSym} за сутки
-                              </p>
-                            ) : null}
-                          </div>
+                        <div className="space-y-3">
                           <div className="flex min-w-0 flex-col gap-2">
                             <div className="flex items-center justify-between gap-3">
                               <span className="shrink-0 text-xs font-medium text-gray-600">
@@ -3074,7 +3510,7 @@ export default function App() {
                               </p>
                             ) : null}
                           </div>
-                          <details className="col-span-2 rounded-lg border border-gray-200 bg-white p-3">
+                          <details className="rounded-lg border border-gray-200 bg-white p-3">
                             <summary className="cursor-pointer text-sm font-medium text-gray-700">
                               Подробный расчет
                             </summary>
@@ -3109,21 +3545,6 @@ export default function App() {
                         </div>
                       );
                     })()}
-                  </section>
-
-                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
-                    <h3 className="text-sm font-bold text-gray-800">
-                      📝 Комментарий
-                    </h3>
-                    <textarea
-                      rows={5}
-                      className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
-                      placeholder="Комментарий"
-                      value={formData.notes}
-                      onChange={(e) =>
-                        setFormData({ ...formData, notes: e.target.value })
-                      }
-                    />
                   </section>
                 </div>
 
