@@ -868,6 +868,14 @@ export default function App() {
   const [ownerHandDirty, setOwnerHandDirty] = useState(false);
   const savedOwnerWasNullRef = useRef(true);
 
+  const [bookingFinanceExtra, setBookingFinanceExtra] = useState({
+    commissionRub: "",
+    commissionPct: "17",
+    paidRub: "",
+    paidDateDmy: "",
+    paymentMethod: "cash" as "cash" | "alpha",
+  });
+
   const [sortField, setSortField] = useState<string>("check_in_date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
@@ -910,6 +918,9 @@ export default function App() {
   const sourceSettingsLoadedRef = useRef(false);
   const bookingDateStartRef = useRef<HTMLInputElement | null>(null);
   const bookingDateEndRef = useRef<HTMLInputElement | null>(null);
+  const bookingPaymentDateRef = useRef<HTMLInputElement | null>(null);
+  const bookingGuestNameRef = useRef<HTMLInputElement | null>(null);
+  const bookingModalSaveRef = useRef<HTMLButtonElement | null>(null);
 
   async function saveActiveSourceSettings() {
     let settings: Record<string, unknown> = {};
@@ -1026,12 +1037,35 @@ export default function App() {
 
   useEffect(() => {
     if (!bookingModal) return;
+    const tot = parseOwnerHandInput(formData.total_price) ?? 0;
+    const p = Math.min(
+      100,
+      Math.max(0, Number((avitoCommissionPct || "17").trim()) || 17),
+    );
+    const cr = tot > 0 ? Math.round((tot * p) / 100) : 0;
+    setBookingFinanceExtra({
+      commissionRub:
+        cr > 0 ? fmtOwnerPriceThousandsForInput(String(cr)) : "",
+      commissionPct: String(Math.round(p)),
+      paidRub: "",
+      paidDateDmy: "",
+      paymentMethod: "cash",
+    });
+  }, [
+    bookingModal?.bookingId,
+    bookingModal?.apartmentId,
+    bookingModal?.start,
+    bookingModal?.end,
+  ]);
+
+  useEffect(() => {
+    if (!bookingModal) return;
     if (ownerHandDirty) return;
     if (bookingModal.bookingId != null && !savedOwnerWasNullRef.current) return;
     setFormData((p) => {
-      const t = Number(p.total_price);
+      const t = parseOwnerHandInput(p.total_price);
       const hand = bookingComputedOwnerHandAmount(
-        Number.isFinite(t) ? t : null,
+        t != null && Number.isFinite(t) ? t : null,
         p.source,
         avitoCommissionPct,
       );
@@ -1076,17 +1110,46 @@ export default function App() {
   }, [editModal]);
 
   useEffect(() => {
+    if (!bookingModal) return;
+    const tid = window.setTimeout(() => {
+      bookingGuestNameRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(tid);
+  }, [
+    bookingModal?.bookingId,
+    bookingModal?.apartmentId,
+    bookingModal?.start,
+    bookingModal?.end,
+  ]);
+
+  useEffect(() => {
     if (!bookingModal && !editModal) return undefined;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (bookingModal) {
-        setBookingModal(null);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (bookingModal) {
+          setBookingModal(null);
+          return;
+        }
+        if (editModal) {
+          setEditModal(null);
+        }
         return;
       }
-      if (editModal) {
-        setEditModal(null);
+      if (e.key === "Enter" && bookingModal) {
+        const t = e.target as HTMLElement;
+        if (
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.tagName === "BUTTON" ||
+          t.tagName === "A" ||
+          t.tagName === "SUMMARY"
+        ) {
+          return;
+        }
+        e.preventDefault();
+        bookingModalSaveRef.current?.click();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -3336,6 +3399,7 @@ export default function App() {
                             Гость:
                           </span>
                           <input
+                            ref={bookingGuestNameRef}
                             placeholder="ФИО"
                             className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
                             value={formData.guest_name}
@@ -3469,7 +3533,7 @@ export default function App() {
                     </div>
                   </section>
 
-                  <section className="space-y-3 rounded-xl bg-gray-50 p-4">
+                  <section className="space-y-2 rounded-xl bg-gray-50 p-3">
                     <h3 className="text-sm font-bold text-gray-800">
                       💰 Финансы
                     </h3>
@@ -3479,69 +3543,327 @@ export default function App() {
                         bookingModal.end,
                       );
                       const nightsClamped = Math.max(1, nights);
-                      const guestTotal = Number(formData.total_price || 0);
+                      const guestNum = parseOwnerHandInput(formData.total_price);
                       const guestPerNight =
-                        guestTotal > 0
-                          ? Math.round(guestTotal / nightsClamped)
+                        guestNum != null &&
+                        Number.isFinite(guestNum) &&
+                        guestNum > 0
+                          ? Math.round(guestNum / nightsClamped)
+                          : null;
+                      const ownerNum = parseOwnerHandInput(formData.owner_price);
+                      const ownerPerNight =
+                        ownerNum != null &&
+                        Number.isFinite(ownerNum) &&
+                        ownerNum > 0
+                          ? Math.round(ownerNum / nightsClamped)
                           : null;
                       const curSym = bookingCurrencySymbol("RUB");
                       return (
-                        <div className="space-y-3">
-                          <div className="flex min-w-0 flex-col gap-2">
-                            <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+                          <div className="min-w-0 space-y-2.5">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="shrink-0 text-xs font-medium text-gray-600">
-                                Цена для гостя
+                                Цена гостя:
                               </span>
                               <input
-                                placeholder="Сумма"
-                                className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-gray-200 px-3 py-2 text-right text-sm"
+                                className="w-[7.25rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm font-semibold tabular-nums text-gray-900"
+                                inputMode="decimal"
+                                placeholder="0"
                                 value={formData.total_price}
-                                onChange={(e) =>
+                                onChange={(e) => {
                                   setFormData({
                                     ...formData,
-                                    total_price: e.target.value,
+                                    total_price: e.target.value.replace(
+                                      /[^\d\s,.\-]/g,
+                                      "",
+                                    ),
+                                  });
+                                }}
+                                onBlur={() => {
+                                  const raw = normalizeOwnerPriceForBlurFormat(
+                                    formData.total_price,
+                                  );
+                                  setFormData((p) => ({
+                                    ...p,
+                                    total_price:
+                                      fmtOwnerPriceThousandsForInput(raw),
+                                  }));
+                                }}
+                                aria-label="Цена гостя"
+                              />
+                              {guestPerNight != null ? (
+                                <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                                  {guestPerNight} {curSym}/сут
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Комиссия сайта:
+                              </span>
+                              <input
+                                className="w-[6.5rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm tabular-nums text-gray-900"
+                                inputMode="decimal"
+                                value={bookingFinanceExtra.commissionRub}
+                                onChange={(e) =>
+                                  setBookingFinanceExtra((p) => ({
+                                    ...p,
+                                    commissionRub: e.target.value.replace(
+                                      /[^\d\s,.\-]/g,
+                                      "",
+                                    ),
+                                  }))
+                                }
+                                onBlur={() => {
+                                  const raw = normalizeOwnerPriceForBlurFormat(
+                                    bookingFinanceExtra.commissionRub,
+                                  );
+                                  setBookingFinanceExtra((p) => ({
+                                    ...p,
+                                    commissionRub:
+                                      fmtOwnerPriceThousandsForInput(raw),
+                                  }));
+                                }}
+                                aria-label="Комиссия сайта, сумма"
+                              />
+                              <input
+                                className="w-12 shrink-0 rounded-md border border-gray-200 bg-white px-1 py-1.5 text-center text-xs tabular-nums text-gray-900"
+                                inputMode="numeric"
+                                value={bookingFinanceExtra.commissionPct}
+                                onChange={(e) =>
+                                  setBookingFinanceExtra((p) => ({
+                                    ...p,
+                                    commissionPct: e.target.value
+                                      .replace(/\D/g, "")
+                                      .slice(0, 3),
+                                  }))
+                                }
+                                onBlur={() =>
+                                  setBookingFinanceExtra((p) => {
+                                    const n = Math.min(
+                                      100,
+                                      Math.max(
+                                        0,
+                                        Number(p.commissionPct) || 0,
+                                      ),
+                                    );
+                                    return {
+                                      ...p,
+                                      commissionPct: String(Math.round(n)),
+                                    };
                                   })
                                 }
+                                aria-label="Комиссия, процент"
                               />
+                              <span className="shrink-0 text-xs text-gray-500">
+                                %
+                              </span>
                             </div>
-                            {guestPerNight != null ? (
-                              <p className="mt-1 text-sm text-gray-500">
-                                {guestPerNight} {curSym} за сутки
-                              </p>
-                            ) : null}
-                          </div>
-                          <details className="rounded-lg border border-gray-200 bg-white p-3">
-                            <summary className="cursor-pointer text-sm font-medium text-gray-700">
-                              Подробный расчет
-                            </summary>
-                            <div className="mt-3 space-y-2">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Мне на руки:
+                              </span>
                               <input
-                                placeholder="Комиссия"
-                                className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500"
-                                disabled
-                                readOnly
-                                value=""
+                                className="w-[7.25rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm font-bold tabular-nums text-green-700"
+                                inputMode="decimal"
+                                placeholder="Мои деньги"
+                                value={formData.owner_price}
+                                onChange={(e) => {
+                                  setOwnerHandDirty(true);
+                                  setFormData({
+                                    ...formData,
+                                    owner_price: e.target.value.replace(
+                                      /[^\d\s,.\-]/g,
+                                      "",
+                                    ),
+                                  });
+                                }}
+                                onBlur={() => {
+                                  const raw = normalizeOwnerPriceForBlurFormat(
+                                    formData.owner_price,
+                                  );
+                                  setFormData((p) => ({
+                                    ...p,
+                                    owner_price:
+                                      fmtOwnerPriceThousandsForInput(raw),
+                                  }));
+                                }}
+                                aria-label="Мне на руки, финансы"
                               />
-                              <p className="text-xs text-gray-500">
-                                {nights > 0
-                                  ? (() => {
-                                      const total = Number(
-                                        formData.total_price || 0,
-                                      );
-                                      const per =
-                                        total > 0
-                                          ? (total / nights).toFixed(0)
-                                          : null;
-                                      return `Ночей: ${nights}${
-                                        per != null
-                                          ? ` · ~${per} ₽ / ночь (оценка по сумме)`
-                                          : ""
-                                      }`;
-                                    })()
-                                  : "Укажите даты заезда и выезда для оценки."}
-                              </p>
+                              {ownerPerNight != null ? (
+                                <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                                  {ownerPerNight} {curSym}/сут
+                                </span>
+                              ) : null}
                             </div>
-                          </details>
+                          </div>
+                          <div className="min-w-0 space-y-2.5">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Получено:
+                              </span>
+                              <div className="flex w-[7.25rem] shrink-0 items-center overflow-hidden rounded-md border border-gray-200 bg-white">
+                                <input
+                                  className="min-w-0 flex-1 border-0 bg-transparent px-1 py-1.5 text-center text-sm font-semibold tabular-nums text-gray-900 outline-none focus:ring-0"
+                                  inputMode="decimal"
+                                  placeholder="0"
+                                  value={bookingFinanceExtra.paidRub}
+                                  onChange={(e) =>
+                                    setBookingFinanceExtra((p) => ({
+                                      ...p,
+                                      paidRub: e.target.value.replace(
+                                        /[^\d\s,.\-]/g,
+                                        "",
+                                      ),
+                                    }))
+                                  }
+                                  onBlur={() => {
+                                    const raw = normalizeOwnerPriceForBlurFormat(
+                                      bookingFinanceExtra.paidRub,
+                                    );
+                                    setBookingFinanceExtra((p) => ({
+                                      ...p,
+                                      paidRub:
+                                        fmtOwnerPriceThousandsForInput(raw),
+                                    }));
+                                  }}
+                                  aria-label="Получено"
+                                />
+                                <span
+                                  className="shrink-0 pr-1.5 text-sm font-semibold tabular-nums text-gray-600"
+                                  aria-hidden
+                                >
+                                  {curSym}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-medium text-gray-600">
+                                Дата оплаты
+                              </div>
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                <div className="flex min-w-0 flex-1 items-center gap-1 sm:max-w-[11rem]">
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="ДД/ММ/ГГГГ"
+                                    autoComplete="off"
+                                    className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm"
+                                    value={bookingFinanceExtra.paidDateDmy}
+                                    onChange={(e) =>
+                                      setBookingFinanceExtra((p) => ({
+                                        ...p,
+                                        paidDateDmy: e.target.value,
+                                      }))
+                                    }
+                                    onBlur={(e) => {
+                                      const v = (
+                                        e.target as HTMLInputElement
+                                      ).value.trim();
+                                      if (!v) return;
+                                      const iso = parseRuDmyToIsoYmd(v);
+                                      if (iso)
+                                        setBookingFinanceExtra((p) => ({
+                                          ...p,
+                                          paidDateDmy: isoYmdToRuDmy(iso),
+                                        }));
+                                    }}
+                                    aria-label="Дата оплаты"
+                                  />
+                                  <input
+                                    ref={bookingPaymentDateRef}
+                                    type="date"
+                                    className="sr-only"
+                                    tabIndex={-1}
+                                    value={
+                                      parseRuDmyToIsoYmd(
+                                        bookingFinanceExtra.paidDateDmy.trim(),
+                                      ) ?? ""
+                                    }
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v)
+                                        setBookingFinanceExtra((p) => ({
+                                          ...p,
+                                          paidDateDmy: isoYmdToRuDmy(v),
+                                        }));
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="shrink-0 rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                                    aria-label="Календарь даты оплаты"
+                                    onClick={() => {
+                                      const el = bookingPaymentDateRef.current;
+                                      if (!el) return;
+                                      if (typeof el.showPicker === "function")
+                                        el.showPicker();
+                                      else el.click();
+                                    }}
+                                  >
+                                    📅
+                                  </button>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                                  onClick={() =>
+                                    setBookingFinanceExtra((p) => ({
+                                      ...p,
+                                      paidDateDmy: isoYmdToRuDmy(
+                                        localTodayKey(),
+                                      ),
+                                    }))
+                                  }
+                                >
+                                  Сегодня
+                                </button>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs font-medium text-gray-600">
+                                Способ оплаты
+                              </div>
+                              <div className="flex flex-row flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                                <label className="inline-flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="booking-pay-method"
+                                    className="border-gray-300"
+                                    checked={
+                                      bookingFinanceExtra.paymentMethod ===
+                                      "cash"
+                                    }
+                                    onChange={() =>
+                                      setBookingFinanceExtra((p) => ({
+                                        ...p,
+                                        paymentMethod: "cash",
+                                      }))
+                                    }
+                                  />
+                                  Наличные
+                                </label>
+                                <label className="inline-flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="booking-pay-method"
+                                    className="border-gray-300"
+                                    checked={
+                                      bookingFinanceExtra.paymentMethod ===
+                                      "alpha"
+                                    }
+                                    onChange={() =>
+                                      setBookingFinanceExtra((p) => ({
+                                        ...p,
+                                        paymentMethod: "alpha",
+                                      }))
+                                    }
+                                  />
+                                  Альфа-карта
+                                </label>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })()}
@@ -3592,13 +3914,15 @@ export default function App() {
                     </button>
                     <button
                       type="button"
+                      ref={bookingModalSaveRef}
                       className="rounded-lg bg-green-500 px-3 py-1 text-sm text-black hover:bg-green-600"
                       onClick={() => {
                       const payload = {
                         check_in_date: bookingModal.start,
                         check_out_date: bookingModal.end,
                         guest_name: formData.guest_name,
-                        total_price: Number(formData.total_price || 0),
+                        total_price:
+                          parseOwnerHandInput(formData.total_price) ?? 0,
                         owner_price: parseOwnerHandInput(formData.owner_price),
                         currency: "RUB",
                         check_in_time: formData.check_in_time.trim()
