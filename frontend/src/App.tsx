@@ -413,9 +413,17 @@ function apartmentColumnIdleClasses(aptName: string): string {
 }
 
 function bookingCellClasses(sem: DaySemantics, aptName: string): string {
-  const base = "relative h-8 border border-gray-200 ";
-  if (sem.isHoliday) return base + "bg-red-50 hover:bg-red-100";
-  if (sem.isWeekend) return base + "bg-blue-50 hover:bg-blue-100";
+  const base = "relative isolate h-8 border border-gray-200 ";
+  if (sem.isHoliday)
+    return (
+      base +
+      "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-red-50 hover:before:bg-red-100"
+    );
+  if (sem.isWeekend)
+    return (
+      base +
+      "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-blue-50 hover:before:bg-blue-100"
+    );
   return base + apartmentColumnIdleClasses(aptName);
 }
 
@@ -542,7 +550,7 @@ function calendarBookingBarClasses(booking: Booking): string {
     bookingCellSourceColorClasses(booking.source) +
     " " +
     bookingCalendarBarBorderClasses(booking.source) +
-    " absolute left-0 top-0 z-[18] flex h-auto min-h-0 w-full cursor-pointer flex-col items-center justify-center gap-0 overflow-hidden px-0.5 text-center text-[10px] leading-tight text-gray-900 shadow-sm "
+    " absolute left-0 top-0 z-[22] flex h-auto min-h-0 w-full cursor-pointer flex-col items-center justify-center gap-0 overflow-hidden px-0.5 text-center text-[10px] leading-tight text-gray-900 shadow-sm "
   );
 }
 
