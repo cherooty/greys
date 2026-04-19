@@ -373,6 +373,39 @@ function bookingNightCountForModal(startIso: string, endIso: string): number {
   return Math.max(0, Math.round((b.getTime() - a.getTime()) / 86400000));
 }
 
+function bookingModalStudioSquareClass(studioName: string): string {
+  if (studioName === "Маки") return "bg-red-500 ring-1 ring-inset ring-red-800/25";
+  if (studioName === "Блюз") return "bg-sky-500 ring-1 ring-inset ring-sky-800/25";
+  return "bg-gray-400 ring-1 ring-inset ring-black/10";
+}
+
+function formatBookingModalHeaderRange(start: string, end: string): string {
+  const s = new Date(start + "T12:00:00");
+  const e = new Date(end + "T12:00:00");
+  const d1 = s.getDate();
+  const d2 = e.getDate();
+  const m1 = s.getMonth();
+  const m2 = e.getMonth();
+  const y1 = s.getFullYear();
+  const y2 = e.getFullYear();
+  const monthGen = (d: Date) =>
+    d
+      .toLocaleString("ru-RU", { month: "long" })
+      .replace(/^./, (c) => c.toLowerCase());
+  if (m1 === m2 && y1 === y2) {
+    return `${d1}\u2013${d2} ${monthGen(s)} ${y1}`;
+  }
+  if (y1 === y2) {
+    return `${d1} ${monthGen(s)} \u2013 ${d2} ${monthGen(e)} ${y1}`;
+  }
+  return `${d1} ${monthGen(s)} ${y1} \u2013 ${d2} ${monthGen(e)} ${y2}`;
+}
+
+function bookingModalNightsLabel(n: number): string {
+  if (n === 1) return "1 сутки";
+  return `${n} суток`;
+}
+
 function localTodayKey(): string {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
@@ -2791,15 +2824,42 @@ export default function App() {
           {bookingModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
               <div className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
-                <div className="shrink-0 border-b border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900">
+                <div className="shrink-0 border-b border-gray-200 px-6 py-4">
+                  <h2 className="text-base font-semibold text-gray-900">
                     {bookingModal.bookingId != null
                       ? "Редактировать бронь"
                       : "Создать бронь"}
                   </h2>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {formatBookingRange(bookingModal.start, bookingModal.end)}
-                  </p>
+                  <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-gray-700">
+                    <span
+                      className={`mt-0.5 inline-block h-3.5 w-3.5 shrink-0 rounded-sm ${bookingModalStudioSquareClass(
+                        apartments?.find(
+                          (a) => a.id === bookingModal.apartmentId,
+                        )?.name ?? "",
+                      )}`}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 truncate font-medium text-gray-900">
+                      {apartments?.find((a) => a.id === bookingModal.apartmentId)
+                        ?.name ?? "—"}
+                    </span>
+                    <span className="shrink-0 text-gray-400">•</span>
+                    <span className="min-w-0 text-gray-600">
+                      {formatBookingModalHeaderRange(
+                        bookingModal.start,
+                        bookingModal.end,
+                      )}
+                    </span>
+                    <span className="shrink-0 text-gray-400">•</span>
+                    <span className="shrink-0 whitespace-nowrap text-gray-600">
+                      {bookingModalNightsLabel(
+                        bookingNightCountForModal(
+                          bookingModal.start,
+                          bookingModal.end,
+                        ),
+                      )}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
