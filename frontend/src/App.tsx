@@ -1424,31 +1424,21 @@ export default function App() {
         <div
           className={
             "cursor-pointer p-2 rounded " +
-            (activeTab === "apartments" ? "bg-gray-200" : "")
-          }
-          onClick={() => setActiveTab("apartments")}
-        >
-          Апартаменты
-        </div>
-
-        <div
-          className={
-            "cursor-pointer p-2 rounded " +
-            (activeTab === "events" ? "bg-gray-200" : "")
-          }
-          onClick={() => setActiveTab("events")}
-        >
-          События
-        </div>
-
-        <div
-          className={
-            "cursor-pointer p-2 rounded " +
             (activeTab === "bookings" ? "bg-gray-200" : "")
           }
           onClick={() => setActiveTab("bookings")}
         >
           Бронирования
+        </div>
+
+        <div
+          className={
+            "cursor-pointer p-2 rounded " +
+            (activeTab === "priceCalendar" ? "bg-gray-200" : "")
+          }
+          onClick={() => setActiveTab("priceCalendar")}
+        >
+          Календарь цен
         </div>
 
         <div
@@ -1464,11 +1454,21 @@ export default function App() {
         <div
           className={
             "cursor-pointer p-2 rounded " +
-            (activeTab === "priceCalendar" ? "bg-gray-200" : "")
+            (activeTab === "events" ? "bg-gray-200" : "")
           }
-          onClick={() => setActiveTab("priceCalendar")}
+          onClick={() => setActiveTab("events")}
         >
-          Календарь цен
+          События
+        </div>
+
+        <div
+          className={
+            "cursor-pointer p-2 rounded " +
+            (activeTab === "apartments" ? "bg-gray-200" : "")
+          }
+          onClick={() => setActiveTab("apartments")}
+        >
+          Апартаменты
         </div>
       </div>
 
