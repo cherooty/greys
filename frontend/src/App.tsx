@@ -429,7 +429,9 @@ function bookingCellClasses(sem: DaySemantics, aptName: string): string {
 
 /** Ordinal day index (Gregorian), разбор только YYYY-MM-DD, без Date. */
 function isoYmdToOrdinalDay(iso: string): number {
-  const parts = iso.split("-");
+  const t = iso.trim();
+  const datePart = (t.split("T")[0] ?? t).split(" ")[0] ?? t;
+  const parts = datePart.split("-");
   if (parts.length !== 3) return 0;
   const y = Number(parts[0]);
   const m = Number(parts[1]);
@@ -449,6 +451,19 @@ function isoYmdToOrdinalDay(iso: string): number {
   );
 }
 
+/** День day входит в полуинтервал [checkIn, checkOut) по ординалу (без лексикографии строк). */
+function isoYmdInHalfOpenStay(
+  day: string,
+  checkIn: string,
+  checkOut: string,
+): boolean {
+  const od = isoYmdToOrdinalDay(day);
+  const oi = isoYmdToOrdinalDay(checkIn);
+  const oo = isoYmdToOrdinalDay(checkOut);
+  if (od === 0 || oi === 0 || oo === 0) return false;
+  return od >= oi && od < oo;
+}
+
 /** Число ночей по сетке: день выезда не входит; минимум 1. */
 function bookingCalendarStaySpanDays(checkIn: string, checkOut: string): number {
   const n = isoYmdToOrdinalDay(checkOut) - isoYmdToOrdinalDay(checkIn);
@@ -463,8 +478,8 @@ function bookingCalendarSegmentInSection(
   booking: Booking,
   sectionDays: string[],
 ): { firstDay: string; span: number } | null {
-  const inSection = sectionDays.filter(
-    (d) => d >= booking.check_in_date && d < booking.check_out_date,
+  const inSection = sectionDays.filter((d) =>
+    isoYmdInHalfOpenStay(d, booking.check_in_date, booking.check_out_date),
   );
   if (inSection.length === 0) return null;
   const full = bookingCalendarStaySpanDays(
@@ -522,9 +537,11 @@ function bookingCalendarBarVerticalRem(
   const topRem =
     (bookingCalendarCheckInTopPercent(booking.check_in_time) / 100) *
     ROW_HEIGHT;
-  const bottomRem =
+  const bottomRemBase =
     (bookingCalendarCheckOutBottomPercent(booking.check_out_time) / 100) *
     ROW_HEIGHT;
+  /** Несколько ночей: последняя строка сегмента — полная высота; доля выезда не укорачивает блок. */
+  const bottomRem = span > 1 ? ROW_HEIGHT : bottomRemBase;
   const rawHeight =
     span * ROW_HEIGHT - topRem - (ROW_HEIGHT - bottomRem);
   return {
@@ -1610,15 +1627,21 @@ export default function App() {
                                         calendarVisibleBookings?.filter(
                                           (b) =>
                                             b.apartment_id === apt.id &&
-                                            day >= b.check_in_date &&
-                                            day < b.check_out_date,
+                                            isoYmdInHalfOpenStay(
+                                              day,
+                                              b.check_in_date,
+                                              b.check_out_date,
+                                            ),
                                         ) ?? [];
                                       const bookingsHereAny =
                                         bookings?.filter(
                                           (b) =>
                                             b.apartment_id === apt.id &&
-                                            day >= b.check_in_date &&
-                                            day < b.check_out_date,
+                                            isoYmdInHalfOpenStay(
+                                              day,
+                                              b.check_in_date,
+                                              b.check_out_date,
+                                            ),
                                         ) ?? [];
                                       // NOTE: currently we take only the first booking.
                                       // Multiple overlapping bookings are not yet supported.
@@ -1649,6 +1672,41 @@ export default function App() {
                                             )
                                           : null;
                                       const calendarBarRem = barRemBase;
+
+                                      if (
+                                        import.meta.env.DEV &&
+                                        booking &&
+                                        (booking.guest_name ?? "").includes(
+                                          "Алина",
+                                        )
+                                      ) {
+                                        const bottomRemTail =
+                                          (bookingCalendarCheckOutBottomPercent(
+                                            booking.check_out_time,
+                                          ) /
+                                            100) *
+                                          ROW_HEIGHT;
+                                        const checkoutExtraRem =
+                                          ROW_HEIGHT - bottomRemTail;
+                                        console.log("[DEV] Алина tail row", {
+                                          guest_name: booking.guest_name,
+                                          day,
+                                          isSegmentStart,
+                                          "segment?.span": segment?.span,
+                                          checkout_date:
+                                            booking.check_out_date,
+                                          checkoutExtraRem,
+                                          calendarBarRem,
+                                          isCheckoutDayRow:
+                                            day === booking.check_out_date,
+                                          isDayBeforeCheckout:
+                                            day ===
+                                            isoAddDays(
+                                              booking.check_out_date,
+                                              -1,
+                                            ),
+                                        });
+                                      }
 
                                       return (
                                         <div
@@ -1806,6 +1864,39 @@ export default function App() {
                                                   booking,
                                                   avitoCommissionPct,
                                                 );
+                                              if (
+                                                import.meta.env.DEV &&
+                                                booking &&
+                                                isSegmentStart &&
+                                                (booking.guest_name ?? "").includes(
+                                                  "Алина",
+                                                )
+                                              ) {
+                                                const maxHeightUsed =
+                                                  staySpanNights === 1
+                                                    ? `${ROW_HEIGHT}rem`
+                                                    : `${calendarBarRem.heightRem}rem`;
+                                                console.log(
+                                                  "[DEV] Алина bar geometry",
+                                                  {
+                                                    guest_name:
+                                                      booking.guest_name,
+                                                    day,
+                                                    "segment?.span":
+                                                      segment?.span,
+                                                    check_in_date:
+                                                      booking.check_in_date,
+                                                    check_out_date:
+                                                      booking.check_out_date,
+                                                    "calendarBarRem?.topRem":
+                                                      calendarBarRem.topRem,
+                                                    "calendarBarRem?.heightRem":
+                                                      calendarBarRem.heightRem,
+                                                    maxHeightUsed,
+                                                    ROW_HEIGHT,
+                                                  },
+                                                );
+                                              }
                                               return (
                                             <div
                                               className={
@@ -2011,8 +2102,11 @@ export default function App() {
                         const booking = bookings?.find(
                           (b) =>
                             b.apartment_id === contextMenu.apartmentId &&
-                            contextMenu.day >= b.check_in_date &&
-                            contextMenu.day < b.check_out_date,
+                            isoYmdInHalfOpenStay(
+                              contextMenu.day,
+                              b.check_in_date,
+                              b.check_out_date,
+                            ),
                         );
                         if (!booking) return;
 
