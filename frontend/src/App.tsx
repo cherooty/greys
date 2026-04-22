@@ -18,6 +18,13 @@ type Booking = {
   check_out_time?: string | null;
   notes?: string | null;
   source?: string;
+  guest_contact?: string | null;
+  messengers?: string | null;
+  commission_price?: number | null;
+  commission_percent?: number | null;
+  paid_amount?: number | null;
+  paid_date?: string | null;
+  payment_method?: string | null;
 };
 
 type Source = {
@@ -87,6 +94,7 @@ type EventItem = {
 };
 
 type BookingsResizableKey = "guest" | "comment";
+type BookingsViewMode = "table" | "timeline";
 
 const BOOKINGS_COL_MIN: Record<BookingsResizableKey, number> = {
   guest: 140,
@@ -456,6 +464,40 @@ function fmtOwnerPriceThousandsForInput(raw: string): string {
   return (neg ? "-" : "") + grouped;
 }
 
+function encodeBookingMessengers(m: {
+  contactTg: boolean;
+  contactWa: boolean;
+  contactMax: boolean;
+  contactVk: boolean;
+}): string | null {
+  const parts: string[] = [];
+  if (m.contactTg) parts.push("tg");
+  if (m.contactWa) parts.push("wa");
+  if (m.contactVk) parts.push("vk");
+  if (m.contactMax) parts.push("max");
+  return parts.length ? parts.join(",") : null;
+}
+
+function decodeBookingMessengers(s: string | null | undefined): {
+  contactTg: boolean;
+  contactWa: boolean;
+  contactMax: boolean;
+  contactVk: boolean;
+} {
+  const set = new Set(
+    (s ?? "")
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  return {
+    contactTg: set.has("tg"),
+    contactWa: set.has("wa"),
+    contactMax: set.has("max"),
+    contactVk: set.has("vk"),
+  };
+}
+
 function bookingNightCountForModal(startIso: string, endIso: string): number {
   const a = new Date(startIso + "T12:00:00");
   const b = new Date(endIso + "T12:00:00");
@@ -767,6 +809,8 @@ export default function App() {
   const [apartments, setApartments] = useState<Apartment[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES);
+  const [bookingsViewMode, setBookingsViewMode] =
+    useState<BookingsViewMode>("table");
   const [activeSourceId, setActiveSourceId] = useState<string>(
     INITIAL_SOURCES[0].id,
   );
@@ -1012,15 +1056,51 @@ export default function App() {
           ? b.source
           : "manual",
     });
+    const totN = Number(b.total_price ?? 0);
+    const pDefault = Math.min(
+      100,
+      Math.max(0, Number((avitoCommissionPct || "17").trim()) || 17),
+    );
+    const crDefault =
+      totN > 0 && Number.isFinite(totN)
+        ? Math.round((totN * pDefault) / 100)
+        : 0;
+    setBookingFinanceExtra({
+      commissionRub:
+        b.commission_price != null && Number.isFinite(Number(b.commission_price))
+          ? fmtOwnerPriceThousandsForInput(
+              String(Math.round(Number(b.commission_price))),
+            )
+          : crDefault > 0
+            ? fmtOwnerPriceThousandsForInput(String(crDefault))
+            : "",
+      commissionPct:
+        b.commission_percent != null &&
+        Number.isFinite(Number(b.commission_percent))
+          ? String(Math.round(Number(b.commission_percent)))
+          : String(Math.round(pDefault)),
+      paidRub:
+        b.paid_amount != null && Number.isFinite(Number(b.paid_amount))
+          ? fmtOwnerPriceThousandsForInput(
+              String(Math.round(Number(b.paid_amount))),
+            )
+          : "",
+      paidDateDmy:
+        b.paid_date != null && String(b.paid_date).trim()
+          ? isoYmdToRuDmy(String(b.paid_date).trim().slice(0, 10))
+          : "",
+      paymentMethod: b.payment_method === "alpha" ? "alpha" : "cash",
+    });
+    const msg = decodeBookingMessengers(b.messengers);
     setBookingModalMain((p) => ({
       ...p,
       adults: Math.max(1, b.guests_count ?? 1),
       children: 0,
-      phone: "",
-      contactTg: false,
-      contactMax: false,
-      contactWa: false,
-      contactVk: false,
+      phone: b.guest_contact ?? "",
+      contactTg: msg.contactTg,
+      contactMax: msg.contactMax,
+      contactWa: msg.contactWa,
+      contactVk: msg.contactVk,
     }));
     setSelection(null);
     setContextMenu(null);
@@ -1037,6 +1117,7 @@ export default function App() {
 
   useEffect(() => {
     if (!bookingModal) return;
+    if (bookingModal.bookingId != null) return;
     const tot = parseOwnerHandInput(formData.total_price) ?? 0;
     const p = Math.min(
       100,
@@ -1051,12 +1132,7 @@ export default function App() {
       paidDateDmy: "",
       paymentMethod: "cash",
     });
-  }, [
-    bookingModal?.bookingId,
-    bookingModal?.apartmentId,
-    bookingModal?.start,
-    bookingModal?.end,
-  ]);
+  }, [bookingModal?.apartmentId, bookingModal?.start, bookingModal?.end]);
 
   useEffect(() => {
     if (!bookingModal) return;
@@ -2728,6 +2804,37 @@ export default function App() {
           {activeTab === "bookings" && (
             <>
               <h2 className="text-xl font-semibold mb-4">Бронирования</h2>
+              <div className="mb-3 inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setBookingsViewMode("table")}
+                  className={[
+                    "rounded-md px-3 py-1.5 text-sm transition-colors",
+                    bookingsViewMode === "table"
+                      ? "bg-gray-900 text-white"
+                      : "text-gray-700 hover:bg-gray-100",
+                  ].join(" ")}
+                >
+                  Таблица
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBookingsViewMode("timeline")}
+                  className={[
+                    "rounded-md px-3 py-1.5 text-sm transition-colors",
+                    bookingsViewMode === "timeline"
+                      ? "bg-gray-900 text-white"
+                      : "text-gray-700 hover:bg-gray-100",
+                  ].join(" ")}
+                >
+                  Лента
+                </button>
+              </div>
+              {bookingsViewMode === "timeline" ? (
+                <div className="w-full max-w-full rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600 shadow">
+                  Скоро: Лента заездов
+                </div>
+              ) : (
               <div className="w-full max-w-full overflow-x-auto rounded-xl bg-white p-4 shadow">
                 {bookings === null || sortedBookings === null ? (
                   <p>Loading...</p>
@@ -2939,6 +3046,7 @@ export default function App() {
                   </table>
                 )}
               </div>
+              )}
             </>
           )}
 
@@ -3921,6 +4029,12 @@ export default function App() {
                         check_in_date: bookingModal.start,
                         check_out_date: bookingModal.end,
                         guest_name: formData.guest_name,
+                        guest_contact: bookingModalMain.phone.trim()
+                          ? bookingModalMain.phone.trim()
+                          : null,
+                        guests_count:
+                          bookingModalMain.adults + bookingModalMain.children,
+                        messengers: encodeBookingMessengers(bookingModalMain),
                         total_price:
                           parseOwnerHandInput(formData.total_price) ?? 0,
                         owner_price: parseOwnerHandInput(formData.owner_price),
@@ -3935,6 +4049,25 @@ export default function App() {
                           ? formData.notes
                           : null,
                         source: formData.source,
+                        commission_price: parseOwnerHandInput(
+                          bookingFinanceExtra.commissionRub,
+                        ),
+                        commission_percent: (() => {
+                          const t = bookingFinanceExtra.commissionPct.trim();
+                          if (t === "") return null;
+                          const n = Number(t);
+                          if (!Number.isFinite(n)) return null;
+                          return Math.min(100, Math.max(0, n));
+                        })(),
+                        paid_amount: parseOwnerHandInput(
+                          bookingFinanceExtra.paidRub,
+                        ),
+                        paid_date: (() => {
+                          const d = bookingFinanceExtra.paidDateDmy.trim();
+                          if (!d) return null;
+                          return parseRuDmyToIsoYmd(d) ?? null;
+                        })(),
+                        payment_method: bookingFinanceExtra.paymentMethod,
                       };
                       const isEdit = bookingModal.bookingId != null;
                       const url = isEdit
