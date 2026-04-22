@@ -86,6 +86,35 @@ function rubDigitsToDisplay(digits: string): string {
   return formatRubMoney(n);
 }
 
+function formatTimelineRub(amount: number | null | undefined): string {
+  if (amount == null || Number.isNaN(amount)) return "—";
+  const s = Math.round(amount)
+    .toLocaleString("ru-RU", { maximumFractionDigits: 0 })
+    .replace(/\u00a0/g, " ");
+  return `₽${s}`;
+}
+
+function formatTimelineNights(checkInDate: string, checkOutDate: string): string {
+  const inDate = new Date(checkInDate + "T12:00:00");
+  const outDate = new Date(checkOutDate + "T12:00:00");
+  const raw = Math.round((outDate.getTime() - inDate.getTime()) / 86400000);
+  const nights = Math.max(1, Number.isFinite(raw) ? raw : 1);
+  const mod10 = nights % 10;
+  const mod100 = nights % 100;
+  const word =
+    mod10 === 1 && mod100 !== 11
+      ? "ночь"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "ночи"
+        : "ночей";
+  return `${nights} ${word}`;
+}
+
+function capitalizeFirst(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 type EventItem = {
   id: string;
   date: string;
@@ -95,6 +124,10 @@ type EventItem = {
 
 type BookingsResizableKey = "guest" | "comment";
 type BookingsViewMode = "table" | "timeline";
+type TimelineArrivalItem = {
+  day: string;
+  items: { id: number; line: string; apartmentSortKey: string }[];
+};
 
 const BOOKINGS_COL_MIN: Record<BookingsResizableKey, number> = {
   guest: 140,
@@ -1735,6 +1768,94 @@ export default function App() {
       .catch(console.error);
   }
 
+  const timelineMonthGroups = useMemo(() => {
+    if (!bookings || bookings.length === 0)
+      return [] as {
+        monthKey: string;
+        monthLabel: string;
+        days: TimelineArrivalItem[];
+      }[];
+
+    const arrivals = bookings
+      .map((b) => {
+        const day = (b.check_in_date ?? "").slice(0, 10);
+        if (!day) return null;
+        const apartmentName =
+          apartments?.find((a) => a.id === b.apartment_id)?.name ??
+          String(b.apartment_id);
+        const sourceKey = bookingTableSourceKey(b.source);
+        const sourceLabel = SOURCES[sourceKey].label;
+        const guestName = b.guest_name?.trim() ? b.guest_name : "—";
+        const line = [
+          apartmentName,
+          guestName,
+          sourceLabel,
+          formatTimelineNights(b.check_in_date, b.check_out_date),
+          formatTimelineRub(b.total_price),
+        ].join(" | ");
+        return {
+          id: b.id,
+          monthKey: day.slice(0, 7),
+          day,
+          apartmentSortKey: apartmentName,
+          line,
+        };
+      })
+      .filter(
+        (
+          v,
+        ): v is {
+          id: number;
+          monthKey: string;
+          day: string;
+          apartmentSortKey: string;
+          line: string;
+        } => v !== null,
+      )
+      .sort((a, b) => {
+        if (a.monthKey !== b.monthKey) return a.monthKey.localeCompare(b.monthKey);
+        if (a.day !== b.day) return a.day.localeCompare(b.day);
+        return a.apartmentSortKey.localeCompare(b.apartmentSortKey, "ru");
+      });
+
+    const byMonth = new Map<
+      string,
+      Map<string, { id: number; line: string; apartmentSortKey: string }[]>
+    >();
+    for (const item of arrivals) {
+      if (!byMonth.has(item.monthKey)) byMonth.set(item.monthKey, new Map());
+      const byDay = byMonth.get(item.monthKey)!;
+      if (!byDay.has(item.day)) byDay.set(item.day, []);
+      byDay
+        .get(item.day)!
+        .push({
+          id: item.id,
+          line: item.line,
+          apartmentSortKey: item.apartmentSortKey,
+        });
+    }
+
+    return Array.from(byMonth.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([monthKey, dayMap]) => ({
+        monthKey,
+        monthLabel: capitalizeFirst(
+          new Date(`${monthKey}-01T12:00:00`).toLocaleDateString("ru-RU", {
+            month: "long",
+            year: "numeric",
+          }),
+        ),
+        days: Array.from(dayMap.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([day, items]) => ({
+            day,
+            items: [...items].sort((a, b) =>
+              a.apartmentSortKey.localeCompare(b.apartmentSortKey, "ru"),
+            ),
+          })),
+      }));
+  }, [bookings, apartments]);
+
   const calendarTodayKey = localTodayKey();
 
   return (
@@ -2832,7 +2953,46 @@ export default function App() {
               </div>
               {bookingsViewMode === "timeline" ? (
                 <div className="w-full max-w-full rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600 shadow">
-                  Скоро: Лента заездов
+                  {timelineMonthGroups.length === 0 ? (
+                    <div>Скоро: Лента заездов</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {timelineMonthGroups.map((monthGroup) => (
+                        <section
+                          key={monthGroup.monthKey}
+                          className="rounded-lg border border-gray-200 bg-white p-3"
+                        >
+                          <h3 className="mb-3 text-base font-semibold text-gray-900">
+                            {monthGroup.monthLabel}
+                          </h3>
+                          <div className="space-y-3">
+                            {monthGroup.days.map((dayGroup) => (
+                              <div key={dayGroup.day}>
+                                <div className="mb-1 text-sm font-medium text-gray-700">
+                                  {new Date(
+                                    `${dayGroup.day}T12:00:00`,
+                                  ).toLocaleDateString("ru-RU", {
+                                    day: "2-digit",
+                                    month: "long",
+                                  })}
+                                </div>
+                                <div className="space-y-1">
+                                  {dayGroup.items.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800"
+                                    >
+                                      {item.line}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
               <div className="w-full max-w-full overflow-x-auto rounded-xl bg-white p-4 shadow">
