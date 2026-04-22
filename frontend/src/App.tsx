@@ -94,11 +94,15 @@ function formatTimelineRub(amount: number | null | undefined): string {
   return `₽${s}`;
 }
 
-function formatTimelineNights(checkInDate: string, checkOutDate: string): string {
+function timelineNightsCount(checkInDate: string, checkOutDate: string): number {
   const inDate = new Date(checkInDate + "T12:00:00");
   const outDate = new Date(checkOutDate + "T12:00:00");
   const raw = Math.round((outDate.getTime() - inDate.getTime()) / 86400000);
-  const nights = Math.max(1, Number.isFinite(raw) ? raw : 1);
+  return Math.max(1, Number.isFinite(raw) ? raw : 1);
+}
+
+function formatTimelineNights(checkInDate: string, checkOutDate: string): string {
+  const nights = timelineNightsCount(checkInDate, checkOutDate);
   const mod10 = nights % 10;
   const mod100 = nights % 100;
   const word =
@@ -113,6 +117,31 @@ function formatTimelineNights(checkInDate: string, checkOutDate: string): string
 function capitalizeFirst(s: string): string {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function timelineApartmentDotClass(apartmentName: string): string {
+  const key = apartmentName.trim().toLowerCase();
+  if (key === "блюз" || key === "blues") return "bg-sky-500";
+  if (key === "маки" || key === "maki") return "bg-red-500";
+  return "bg-gray-400";
+}
+
+function formatArrivalsCount(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  return mod10 === 1 && mod100 !== 11 ? `${count} заезд` : `${count} заездов`;
+}
+
+function formatNightsCountRu(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word =
+    mod10 === 1 && mod100 !== 11
+      ? "ночь"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "ночи"
+        : "ночей";
+  return `${count} ${word}`;
 }
 
 type EventItem = {
@@ -844,6 +873,9 @@ export default function App() {
   const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES);
   const [bookingsViewMode, setBookingsViewMode] =
     useState<BookingsViewMode>("table");
+  const [timelineMonthOpen, setTimelineMonthOpen] = useState<
+    Record<string, boolean>
+  >({});
   const [activeSourceId, setActiveSourceId] = useState<string>(
     INITIAL_SOURCES[0].id,
   );
@@ -1773,6 +1805,9 @@ export default function App() {
       return [] as {
         monthKey: string;
         monthLabel: string;
+        bookingsCount: number;
+        occupancySummary: string;
+        occupancyByApartment: { apartmentName: string; nights: number }[];
         days: TimelineArrivalItem[];
       }[];
 
@@ -1798,6 +1833,7 @@ export default function App() {
           monthKey: day.slice(0, 7),
           day,
           apartmentSortKey: apartmentName,
+          nights: timelineNightsCount(b.check_in_date, b.check_out_date),
           line,
         };
       })
@@ -1809,6 +1845,7 @@ export default function App() {
           monthKey: string;
           day: string;
           apartmentSortKey: string;
+          nights: number;
           line: string;
         } => v !== null,
       )
@@ -1822,6 +1859,8 @@ export default function App() {
       string,
       Map<string, { id: number; line: string; apartmentSortKey: string }[]>
     >();
+    const byMonthApartmentNights = new Map<string, Map<string, number>>();
+    const byMonthBookingCount = new Map<string, number>();
     for (const item of arrivals) {
       if (!byMonth.has(item.monthKey)) byMonth.set(item.monthKey, new Map());
       const byDay = byMonth.get(item.monthKey)!;
@@ -1833,6 +1872,18 @@ export default function App() {
           line: item.line,
           apartmentSortKey: item.apartmentSortKey,
         });
+      if (!byMonthApartmentNights.has(item.monthKey)) {
+        byMonthApartmentNights.set(item.monthKey, new Map());
+      }
+      const aptNights = byMonthApartmentNights.get(item.monthKey)!;
+      aptNights.set(
+        item.apartmentSortKey,
+        (aptNights.get(item.apartmentSortKey) ?? 0) + item.nights,
+      );
+      byMonthBookingCount.set(
+        item.monthKey,
+        (byMonthBookingCount.get(item.monthKey) ?? 0) + 1,
+      );
     }
 
     return Array.from(byMonth.entries())
@@ -1845,6 +1896,18 @@ export default function App() {
             year: "numeric",
           }),
         ),
+        bookingsCount: byMonthBookingCount.get(monthKey) ?? 0,
+        occupancyByApartment: Array.from(
+          (byMonthApartmentNights.get(monthKey) ?? new Map()).entries(),
+        )
+          .sort(([a], [b]) => a.localeCompare(b, "ru"))
+          .map(([apartmentName, nights]) => ({ apartmentName, nights })),
+        occupancySummary: Array.from(
+          (byMonthApartmentNights.get(monthKey) ?? new Map()).entries(),
+        )
+          .sort(([a], [b]) => a.localeCompare(b, "ru"))
+          .map(([apartmentName, nights]) => `${apartmentName} ${nights}с`)
+          .join(" • "),
         days: Array.from(dayMap.entries())
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([day, items]) => ({
@@ -1855,6 +1918,25 @@ export default function App() {
           })),
       }));
   }, [bookings, apartments]);
+
+  useEffect(() => {
+    const currentMonthKey = localTodayKey().slice(0, 7);
+    setTimelineMonthOpen((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const monthGroup of timelineMonthGroups) {
+        if (monthGroup.monthKey in prev) {
+          next[monthGroup.monthKey] = prev[monthGroup.monthKey];
+        } else {
+          next[monthGroup.monthKey] = monthGroup.monthKey >= currentMonthKey;
+        }
+      }
+      return next;
+    });
+  }, [timelineMonthGroups]);
+
+  function toggleTimelineMonth(monthKey: string) {
+    setTimelineMonthOpen((prev) => ({ ...prev, [monthKey]: !prev[monthKey] }));
+  }
 
   const calendarTodayKey = localTodayKey();
 
@@ -2960,35 +3042,71 @@ export default function App() {
                       {timelineMonthGroups.map((monthGroup) => (
                         <section
                           key={monthGroup.monthKey}
-                          className="rounded-lg border border-gray-200 bg-white p-3"
+                          className="rounded-lg border border-gray-200 bg-white p-2"
                         >
-                          <h3 className="mb-3 text-base font-semibold text-gray-900">
-                            {monthGroup.monthLabel}
-                          </h3>
-                          <div className="space-y-3">
-                            {monthGroup.days.map((dayGroup) => (
-                              <div key={dayGroup.day}>
-                                <div className="mb-1 text-sm font-medium text-gray-700">
-                                  {new Date(
-                                    `${dayGroup.day}T12:00:00`,
-                                  ).toLocaleDateString("ru-RU", {
-                                    day: "2-digit",
-                                    month: "long",
-                                  })}
-                                </div>
-                                <div className="space-y-1">
-                                  {dayGroup.items.map((item) => (
-                                    <div
-                                      key={item.id}
-                                      className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800"
-                                    >
-                                      {item.line}
-                                    </div>
-                                  ))}
-                                </div>
+                          <button
+                            type="button"
+                            className="mb-2 flex min-h-[30px] w-full items-center justify-between rounded-md px-2 py-0.5 text-left hover:bg-gray-50"
+                            onClick={() =>
+                              toggleTimelineMonth(monthGroup.monthKey)
+                            }
+                          >
+                            <div className="min-w-0 pl-0.5">
+                              <div className="truncate text-sm font-medium text-gray-800">
+                                {monthGroup.monthLabel}
                               </div>
-                            ))}
-                          </div>
+                              <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-gray-500/90">
+                                <span className="shrink-0">
+                                  {formatArrivalsCount(monthGroup.bookingsCount)}
+                                </span>
+                                {monthGroup.occupancyByApartment.map((apt) => (
+                                  <span
+                                    key={apt.apartmentName}
+                                    className="inline-flex min-w-0 items-center gap-1"
+                                  >
+                                    <span
+                                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${timelineApartmentDotClass(apt.apartmentName)}`}
+                                      aria-hidden
+                                    />
+                                    <span className="truncate">
+                                      {apt.apartmentName} {formatNightsCountRu(apt.nights)}
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <span className="ml-2 text-xs text-gray-500">
+                              {timelineMonthOpen[monthGroup.monthKey]
+                                ? "▼"
+                                : "▶"}
+                            </span>
+                          </button>
+                          {timelineMonthOpen[monthGroup.monthKey] && (
+                            <div className="space-y-3 pl-2.5">
+                              {monthGroup.days.map((dayGroup) => (
+                                <div key={dayGroup.day}>
+                                  <div className="mb-1 text-xs font-medium tracking-wide text-gray-500">
+                                    {new Date(
+                                      `${dayGroup.day}T12:00:00`,
+                                    ).toLocaleDateString("ru-RU", {
+                                      day: "2-digit",
+                                      month: "long",
+                                    })}
+                                  </div>
+                                  <div className="space-y-1">
+                                    {dayGroup.items.map((item) => (
+                                      <div
+                                        key={item.id}
+                                        className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800"
+                                      >
+                                        {item.line}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </section>
                       ))}
                     </div>
