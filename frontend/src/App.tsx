@@ -144,6 +144,60 @@ function formatNightsCountRu(count: number): string {
   return `${count} ${word}`;
 }
 
+function formatGuestsCountRu(count: number | null | undefined): string {
+  if (count == null || count <= 0) return "—";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word =
+    mod10 === 1 && mod100 !== 11
+      ? "гость"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "гостя"
+        : "гостей";
+  return `${count} ${word}`;
+}
+
+function formatTimelinePayout(amount: number | null | undefined): string {
+  if (amount == null || Number.isNaN(amount)) return "—";
+  const s = Math.round(amount)
+    .toLocaleString("ru-RU", { maximumFractionDigits: 0 })
+    .replace(/\u00a0/g, " ");
+  return `+ ${s} ₽`;
+}
+
+function formatCheckInTimeCompact(raw: string | null | undefined): string {
+  return normalizeTimeHhMm(raw ?? "") || "—";
+}
+
+function formatCheckoutCompact(
+  checkOutDate: string,
+  rawTime: string | null | undefined,
+): string {
+  const date = new Date(`${checkOutDate}T12:00:00`).toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "short",
+  });
+  const time = normalizeTimeHhMm(rawTime ?? "");
+  return time ? `${date} ${time}` : date;
+}
+
+function formatTimelineDayLabel(isoDate: string): string {
+  const d = new Date(`${isoDate}T12:00:00`);
+  const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"] as const;
+  const weekday = weekdays[d.getDay()] ?? "";
+  const day = d.getDate();
+  const month = d.toLocaleDateString("ru-RU", {
+    month: "long",
+  });
+  return `${day} ${month}, ${weekday}`;
+}
+
+function isTimelineWeekend(isoDate: string): boolean {
+  const d = new Date(`${isoDate}T12:00:00`);
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
 type EventItem = {
   id: string;
   date: string;
@@ -155,7 +209,20 @@ type BookingsResizableKey = "guest" | "comment";
 type BookingsViewMode = "table" | "timeline";
 type TimelineArrivalItem = {
   day: string;
-  items: { id: number; line: string; apartmentSortKey: string }[];
+  items: {
+    id: number;
+    apartmentSortKey: string;
+    apartmentName: string;
+    guestLine: string;
+    sourceLabel: string;
+    apartmentDotClass: string;
+    checkInTimeLabel: string;
+    sourceBadgeClass: string;
+    nightsLabel: string;
+    payoutLabel: string;
+    checkoutLabel: string;
+    payoutHasValue: boolean;
+  }[];
 };
 
 const BOOKINGS_COL_MIN: Record<BookingsResizableKey, number> = {
@@ -1821,20 +1888,23 @@ export default function App() {
         const sourceKey = bookingTableSourceKey(b.source);
         const sourceLabel = SOURCES[sourceKey].label;
         const guestName = b.guest_name?.trim() ? b.guest_name : "—";
-        const line = [
-          apartmentName,
-          guestName,
-          sourceLabel,
-          formatTimelineNights(b.check_in_date, b.check_out_date),
-          formatTimelineRub(b.total_price),
-        ].join(" | ");
         return {
           id: b.id,
           monthKey: day.slice(0, 7),
           day,
           apartmentSortKey: apartmentName,
           nights: timelineNightsCount(b.check_in_date, b.check_out_date),
-          line,
+          apartmentName,
+          guestName,
+          sourceLabel,
+          apartmentDotClass: timelineApartmentDotClass(apartmentName),
+          checkInTimeLabel: formatCheckInTimeCompact(b.check_in_time),
+          guestLine: `${guestName} · ${formatGuestsCountRu(b.guests_count)}`,
+          sourceBadgeClass: SOURCES[sourceKey].color,
+          nightsLabel: formatTimelineNights(b.check_in_date, b.check_out_date),
+          checkoutLabel: formatCheckoutCompact(b.check_out_date, b.check_out_time),
+          payoutLabel: formatTimelinePayout(b.owner_price),
+          payoutHasValue: b.owner_price != null && !Number.isNaN(b.owner_price),
         };
       })
       .filter(
@@ -1845,19 +1915,48 @@ export default function App() {
           monthKey: string;
           day: string;
           apartmentSortKey: string;
+          apartmentName: string;
+          guestName: string;
+          apartmentDotClass: string;
+          checkInTimeLabel: string;
+          guestLine: string;
+          sourceLabel: string;
+          sourceBadgeClass: string;
+          nightsLabel: string;
+          checkoutLabel: string;
+          payoutLabel: string;
+          payoutHasValue: boolean;
           nights: number;
-          line: string;
         } => v !== null,
       )
       .sort((a, b) => {
         if (a.monthKey !== b.monthKey) return a.monthKey.localeCompare(b.monthKey);
         if (a.day !== b.day) return a.day.localeCompare(b.day);
-        return a.apartmentSortKey.localeCompare(b.apartmentSortKey, "ru");
+        if (a.apartmentSortKey !== b.apartmentSortKey) {
+          return a.apartmentSortKey.localeCompare(b.apartmentSortKey, "ru");
+        }
+        return a.id - b.id;
       });
 
     const byMonth = new Map<
       string,
-      Map<string, { id: number; line: string; apartmentSortKey: string }[]>
+      Map<
+        string,
+        {
+          id: number;
+          apartmentSortKey: string;
+          apartmentName: string;
+          guestLine: string;
+          sourceLabel: string;
+          apartmentDotClass: string;
+          checkInTimeLabel: string;
+          sourceBadgeClass: string;
+          nightsLabel: string;
+          checkoutLabel: string;
+          payoutLabel: string;
+          payoutHasValue: boolean;
+        }[]
+      >
     >();
     const byMonthApartmentNights = new Map<string, Map<string, number>>();
     const byMonthBookingCount = new Map<string, number>();
@@ -1869,7 +1968,16 @@ export default function App() {
         .get(item.day)!
         .push({
           id: item.id,
-          line: item.line,
+          apartmentName: item.apartmentName,
+          guestLine: item.guestLine,
+          sourceLabel: item.sourceLabel,
+          apartmentDotClass: item.apartmentDotClass,
+          checkInTimeLabel: item.checkInTimeLabel,
+          sourceBadgeClass: item.sourceBadgeClass,
+          nightsLabel: item.nightsLabel,
+          checkoutLabel: item.checkoutLabel,
+          payoutLabel: item.payoutLabel,
+          payoutHasValue: item.payoutHasValue,
           apartmentSortKey: item.apartmentSortKey,
         });
       if (!byMonthApartmentNights.has(item.monthKey)) {
@@ -3052,7 +3160,7 @@ export default function App() {
                             }
                           >
                             <div className="min-w-0 pl-0.5">
-                              <div className="truncate text-sm font-medium text-gray-800">
+                              <div className="truncate text-sm font-medium text-gray-700">
                                 {monthGroup.monthLabel}
                               </div>
                               <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-gray-500/90">
@@ -3085,21 +3193,60 @@ export default function App() {
                             <div className="space-y-3 pl-2.5">
                               {monthGroup.days.map((dayGroup) => (
                                 <div key={dayGroup.day}>
-                                  <div className="mb-1 text-xs font-medium tracking-wide text-gray-500">
-                                    {new Date(
-                                      `${dayGroup.day}T12:00:00`,
-                                    ).toLocaleDateString("ru-RU", {
-                                      day: "2-digit",
-                                      month: "long",
-                                    })}
+                                  <div
+                                    className={[
+                                      "mb-1 text-[13px] font-medium",
+                                      isTimelineWeekend(dayGroup.day)
+                                        ? "text-red-600"
+                                        : "text-sky-700",
+                                    ].join(" ")}
+                                  >
+                                    {formatTimelineDayLabel(dayGroup.day)}
                                   </div>
                                   <div className="space-y-1">
                                     {dayGroup.items.map((item) => (
                                       <div
                                         key={item.id}
-                                        className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800"
+                                        className="grid grid-cols-12 items-center gap-x-2 gap-y-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 transition-colors hover:bg-gray-100 sm:grid-cols-[7.2rem_minmax(0,1fr)_max-content_3.6rem_5rem_6.5rem]"
                                       >
-                                        {item.line}
+                                        <div className="col-span-12 flex items-center gap-1.5 whitespace-nowrap sm:col-auto">
+                                          <span className="w-10 shrink-0 text-xs tabular-nums text-gray-500">
+                                            {item.checkInTimeLabel}
+                                          </span>
+                                          <span
+                                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.apartmentDotClass}`}
+                                            aria-hidden
+                                          />
+                                          <span className="text-sm text-gray-800">
+                                            {item.apartmentName}
+                                          </span>
+                                        </div>
+                                        <div className="col-span-12 min-w-0 sm:col-auto sm:truncate">
+                                          {item.guestLine}
+                                        </div>
+                                        <div className="col-span-6 flex items-center justify-start whitespace-nowrap text-left sm:col-auto sm:w-full sm:justify-self-start">
+                                          <span
+                                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${item.sourceBadgeClass} text-gray-800`}
+                                          >
+                                            {item.sourceLabel}
+                                          </span>
+                                        </div>
+                                        <div className="col-span-3 whitespace-nowrap text-xs text-gray-500 sm:col-auto sm:text-sm">
+                                          {item.nightsLabel}
+                                        </div>
+                                        <div className="col-span-6 whitespace-nowrap text-xs text-gray-500 sm:col-auto sm:text-sm">
+                                          {item.checkoutLabel}
+                                        </div>
+                                        <div
+                                          className={[
+                                            "col-span-3 whitespace-nowrap text-right text-sm sm:col-auto",
+                                            item.payoutHasValue
+                                              ? "font-medium text-green-700"
+                                              : "text-gray-400",
+                                          ].join(" ")}
+                                        >
+                                          {item.payoutLabel}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
