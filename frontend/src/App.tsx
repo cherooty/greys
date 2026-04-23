@@ -3142,12 +3142,13 @@ export default function App() {
                 </button>
               </div>
               {bookingsViewMode === "timeline" ? (
-                <div className="w-full max-w-full rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600 shadow">
+                <div className="flex min-h-0 flex-1 w-full max-w-full flex-col rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600 shadow">
                   {timelineMonthGroups.length === 0 ? (
                     <div>Скоро: Лента заездов</div>
                   ) : (
-                    <div className="space-y-4">
-                      {timelineMonthGroups.map((monthGroup) => (
+                    <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                      <div className="space-y-4">
+                        {timelineMonthGroups.map((monthGroup) => (
                         <section
                           key={monthGroup.monthKey}
                           className="rounded-lg border border-gray-200 bg-white p-2"
@@ -3256,6 +3257,7 @@ export default function App() {
                           )}
                         </section>
                       ))}
+                      </div>
                     </div>
                   )}
                 </div>
