@@ -1088,6 +1088,11 @@ export default function App() {
     x: number;
     y: number;
   } | null>(null);
+  const [hoverEventTooltip, setHoverEventTooltip] = useState<{
+    date: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const [selection, setSelection] = useState<{
     apartmentId: number;
@@ -1204,6 +1209,36 @@ export default function App() {
   const bookingPaymentDateRef = useRef<HTMLInputElement | null>(null);
   const bookingGuestNameRef = useRef<HTMLInputElement | null>(null);
   const bookingModalSaveRef = useRef<HTMLButtonElement | null>(null);
+
+  function placeEventHoverTooltip(
+    e: React.MouseEvent<HTMLElement>,
+    day: string,
+    itemsCount: number,
+  ) {
+    const padding = 12;
+    const tooltipWidth = 240;
+    const tooltipHeight = Math.min(220, 36 + itemsCount * 22);
+    let x = e.clientX + 12;
+    let y = e.clientY + 12;
+    if (x + tooltipWidth > window.innerWidth - padding) {
+      x = window.innerWidth - tooltipWidth - padding;
+    }
+    if (y + tooltipHeight > window.innerHeight - padding) {
+      y = window.innerHeight - tooltipHeight - padding;
+    }
+    if (x < padding) x = padding;
+    if (y < padding) y = padding;
+    setHoverEventTooltip({ date: day, x, y });
+  }
+
+  function showEventHoverTooltipForDay(
+    e: React.MouseEvent<HTMLElement>,
+    day: string,
+  ) {
+    const list = eventsByDate[day];
+    if (!list || list.length === 0) return;
+    placeEventHoverTooltip(e, day, list.length);
+  }
 
   async function saveActiveSourceSettings() {
     let settings: Record<string, unknown> = {};
@@ -2474,6 +2509,13 @@ export default function App() {
                                         " cursor-pointer min-w-0"
                                       }
                                       title={sem.holidayLabel}
+                                      onMouseEnter={(e) => showEventHoverTooltipForDay(e, day)}
+                                      onMouseMove={(e) => showEventHoverTooltipForDay(e, day)}
+                                      onMouseLeave={() => {
+                                        setHoverEventTooltip((prev) =>
+                                          prev?.date === day ? null : prev,
+                                        );
+                                      }}
                                       onClick={(e) => {
                                         if (eventsByDate[day]) {
                                           const rect = (
@@ -2632,6 +2674,17 @@ export default function App() {
                                               ? " !bg-blue-200 before:!bg-blue-200 hover:before:!bg-blue-200"
                                               : "")
                                           }
+                                          onMouseEnter={(e) =>
+                                            showEventHoverTooltipForDay(e, day)
+                                          }
+                                          onMouseMove={(e) =>
+                                            showEventHoverTooltipForDay(e, day)
+                                          }
+                                          onMouseLeave={() => {
+                                            setHoverEventTooltip((prev) =>
+                                              prev?.date === day ? null : prev,
+                                            );
+                                          }}
                                           onMouseDown={(e) => {
                                             if (e.button !== 0) return;
                                             if (isBooked) return;
@@ -2930,6 +2983,25 @@ export default function App() {
                   </div>
                 </div>
               )}
+              {hoverEventTooltip && eventsByDate[hoverEventTooltip.date]?.length ? (
+                <div
+                  className="pointer-events-none fixed z-[9999] max-w-[240px] rounded-md border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-800 shadow-lg"
+                  style={{
+                    left: hoverEventTooltip.x,
+                    top: hoverEventTooltip.y,
+                  }}
+                >
+                  {eventsByDate[hoverEventTooltip.date]!.length === 1 ? (
+                    <div>{eventsByDate[hoverEventTooltip.date]![0].title}</div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {eventsByDate[hoverEventTooltip.date]!.map((ev) => (
+                        <div key={ev.id}>• {ev.title}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               {contextMenu && (
                 <div
                   ref={contextMenuRef}

@@ -183,6 +183,11 @@ export default function PriceCalendar({
     y: number;
     day: string;
   } | null>(null);
+  const [hoverEventTooltip, setHoverEventTooltip] = useState<{
+    date: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const [editModal, setEditModal] = useState<{
     start: string;
@@ -195,6 +200,20 @@ export default function PriceCalendar({
   });
 
   const modalRef = useRef<HTMLDivElement | null>(null);
+
+  const eventsByDate = useMemo(() => {
+    const grouped: Record<string, EventItem[]> = {};
+    for (const event of events) {
+      if (enabledEvents[event.id] === false) continue;
+      if (!grouped[event.date]) grouped[event.date] = [];
+      grouped[event.date].push(event);
+    }
+    return grouped;
+  }, [events, enabledEvents]);
+
+  const hideHoverEventTooltip = () => {
+    setHoverEventTooltip((prev) => (prev ? null : prev));
+  };
 
   const [isOpen, setIsOpen] = useState(true);
   const [priceInput, setPriceInput] = useState("");
@@ -330,6 +349,38 @@ export default function PriceCalendar({
     }
   }
 
+  function placeEventHoverTooltip(
+    e: React.MouseEvent<HTMLElement>,
+    day: string,
+    itemsCount: number,
+  ) {
+    const padding = 12;
+    const tooltipWidth = 240;
+    const tooltipHeight = Math.min(220, 36 + itemsCount * 22);
+    let x = e.clientX + 12;
+    let y = e.clientY + 12;
+
+    if (x + tooltipWidth > window.innerWidth - padding) {
+      x = window.innerWidth - tooltipWidth - padding;
+    }
+    if (y + tooltipHeight > window.innerHeight - padding) {
+      y = window.innerHeight - tooltipHeight - padding;
+    }
+    if (x < padding) x = padding;
+    if (y < padding) y = padding;
+
+    setHoverEventTooltip({ date: day, x, y });
+  }
+
+  function showEventHoverTooltipForDay(
+    e: React.MouseEvent<HTMLElement>,
+    day: string,
+  ) {
+    const list = eventsByDate[day];
+    if (!list || list.length === 0) return;
+    placeEventHoverTooltip(e, day, list.length);
+  }
+
   async function handleSave() {
     if (!editModal) return;
     const { lo, hi } = normalizeRange(editModal.start, editModal.end);
@@ -455,10 +506,7 @@ export default function PriceCalendar({
                           isDayInRange(day, rangePick.start, rangePick.end);
                         const blocked = entry?.is_blocked === true;
                         const isToday = day === todayKey;
-                        const hasEvent = events.some(
-                          (e) =>
-                            e.date === day && enabledEvents[e.id] !== false,
-                        );
+                        const hasEvent = Boolean(eventsByDate[day]?.length);
                         const priceText =
                           entry?.price != null &&
                           !Number.isNaN(Number(entry.price))
@@ -502,6 +550,9 @@ export default function PriceCalendar({
                                 day,
                               });
                             }}
+                            onMouseEnter={(e) => showEventHoverTooltipForDay(e, day)}
+                            onMouseMove={(e) => showEventHoverTooltipForDay(e, day)}
+                            onMouseLeave={hideHoverEventTooltip}
                           >
                             <span
                               className={
@@ -532,6 +583,29 @@ export default function PriceCalendar({
           </div>
         </div>
       </div>
+
+      {hoverEventTooltip && eventsByDate[hoverEventTooltip.date]?.length ? (
+        <div
+          className="pointer-events-none fixed z-[9999] max-w-[240px] rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-800 shadow-lg"
+          style={{
+            left: hoverEventTooltip.x,
+            top: hoverEventTooltip.y,
+          }}
+        >
+          {eventsByDate[hoverEventTooltip.date]!.length === 1 ? (
+            <div>{eventsByDate[hoverEventTooltip.date]![0].title}</div>
+          ) : (
+            <ul className="space-y-0.5">
+              {eventsByDate[hoverEventTooltip.date]!.map((ev) => (
+                <li key={ev.id} className="flex items-start gap-1">
+                  <span aria-hidden>•</span>
+                  <span className="min-w-0">{ev.title}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
 
       {contextMenu ? (
         <div
