@@ -1072,6 +1072,7 @@ export default function App() {
   });
 
   const [ownerHandDirty, setOwnerHandDirty] = useState(false);
+  const [guestPriceDirty, setGuestPriceDirty] = useState(false);
   const savedOwnerWasNullRef = useRef(true);
 
   const [bookingFinanceExtra, setBookingFinanceExtra] = useState({
@@ -1148,25 +1149,47 @@ export default function App() {
     if (!res.ok) alert("Не удалось сохранить настройки");
   }
 
-  function openBookingModalFromSelection(apartmentId: number) {
-    if (!selection) return;
-    if (selection.apartmentId !== apartmentId) return;
-    const start =
-      selection.start < selection.end ? selection.start : selection.end;
-    const lastStay =
-      selection.start > selection.end ? selection.start : selection.end;
-    const checkOut = isoAddDays(lastStay, 1);
+  function bookingGuestTotalFromCalendarRange(
+    apartmentId: number,
+    start: string,
+    endExclusive: string,
+  ): number {
+    let total = 0;
+    let d = start;
+    while (d < endExclusive) {
+      const p = priceMap[apartmentId]?.[d]?.price;
+      if (p != null) {
+        const n = Number(p);
+        if (Number.isFinite(n)) total += n;
+      }
+      d = isoAddDays(d, 1);
+    }
+    return Math.max(0, Math.round(total));
+  }
+
+  function openBookingModalForCreateRange(
+    apartmentId: number,
+    start: string,
+    lastStay: string,
+  ) {
+    const endExclusive = isoAddDays(lastStay, 1);
+    const guestTotal = bookingGuestTotalFromCalendarRange(
+      apartmentId,
+      start,
+      endExclusive,
+    );
+    setGuestPriceDirty(false);
+    setOwnerHandDirty(false);
+    savedOwnerWasNullRef.current = true;
     setBookingModal({
       apartmentId,
       start,
-      end: checkOut,
+      end: endExclusive,
       bookingId: undefined,
     });
-    setOwnerHandDirty(false);
-    savedOwnerWasNullRef.current = true;
     setFormData({
       guest_name: "",
-      total_price: "",
+      total_price: String(guestTotal),
       owner_price: "",
       check_in_time: "",
       check_out_time: "",
@@ -1184,6 +1207,16 @@ export default function App() {
       contactVk: false,
     }));
     setContextMenu(null);
+  }
+
+  function openBookingModalFromSelection(apartmentId: number) {
+    if (!selection) return;
+    if (selection.apartmentId !== apartmentId) return;
+    const start =
+      selection.start < selection.end ? selection.start : selection.end;
+    const lastStay =
+      selection.start > selection.end ? selection.start : selection.end;
+    openBookingModalForCreateRange(apartmentId, start, lastStay);
   }
 
   function openBookingModalForEdit(b: Booking) {
@@ -1205,6 +1238,7 @@ export default function App() {
             return c != null ? String(c) : "";
           })();
     savedOwnerWasNullRef.current = b.owner_price == null;
+    setGuestPriceDirty(true);
     setOwnerHandDirty(false);
     setFormData({
       guest_name: b.guest_name ?? "",
@@ -1317,6 +1351,29 @@ export default function App() {
     formData.source,
     avitoCommissionPct,
     ownerHandDirty,
+  ]);
+
+  useEffect(() => {
+    if (!bookingModal) return;
+    if (bookingModal.bookingId != null) return;
+    if (guestPriceDirty) return;
+    const total = bookingGuestTotalFromCalendarRange(
+      bookingModal.apartmentId,
+      bookingModal.start,
+      bookingModal.end,
+    );
+    const next = String(total);
+    setFormData((p) => {
+      if (p.total_price === next) return p;
+      return { ...p, total_price: next };
+    });
+  }, [
+    bookingModal?.apartmentId,
+    bookingModal?.start,
+    bookingModal?.end,
+    bookingModal?.bookingId,
+    guestPriceDirty,
+    priceMap,
   ]);
 
   useEffect(() => {
@@ -2433,7 +2490,7 @@ export default function App() {
                                               ? " cursor-pointer hover:border-blue-400"
                                               : "") +
                                             (isInSelection(day, apt.id)
-                                              ? " !bg-blue-200"
+                                              ? " !bg-blue-200 before:!bg-blue-200 hover:before:!bg-blue-200"
                                               : "")
                                           }
                                           onMouseDown={(e) => {
@@ -2443,10 +2500,26 @@ export default function App() {
                                             if (e.ctrlKey && selection) {
                                               if (selection.apartmentId !== apt.id)
                                                 return;
+                                              const lo =
+                                                selection.start < day
+                                                  ? selection.start
+                                                  : day;
+                                              const hi =
+                                                selection.start < day
+                                                  ? day
+                                                  : selection.start;
                                               setSelection({
-                                                ...selection,
-                                                end: day,
+                                                apartmentId: apt.id,
+                                                start: lo,
+                                                end: hi,
                                               });
+                                              if (day !== selection.start) {
+                                                openBookingModalForCreateRange(
+                                                  apt.id,
+                                                  lo,
+                                                  hi,
+                                                );
+                                              }
                                               return;
                                             }
 
@@ -2546,35 +2619,8 @@ export default function App() {
                                               return;
                                             }
                                             e.stopPropagation();
-                                            setBookingModal({
-                                              apartmentId: apt.id,
-                                              start: day,
-                                              end: isoAddDays(day, 1),
-                                              bookingId: undefined,
-                                            });
-                                            setOwnerHandDirty(false);
-                                            savedOwnerWasNullRef.current = true;
-                                            setFormData({
-                                              guest_name: "",
-                                              total_price: "",
-                                              owner_price: "",
-                                              check_in_time: "",
-                                              check_out_time: "",
-                                              notes: "",
-                                              source: "manual",
-                                            });
-                                            setBookingModalMain((p) => ({
-                                              ...p,
-                                              adults: 1,
-                                              children: 0,
-                                              phone: "",
-                                              contactTg: false,
-                                              contactMax: false,
-                                              contactWa: false,
-                                              contactVk: false,
-                                            }));
-                                            setSelection(null);
-                                            setContextMenu(null);
+                                            // free-cell click only updates range selection in chessboard
+                                            // modal opens only after a valid range is completed (Ctrl+click)
                                           }}
                                         >
                                           {calendarBarRem != null ? (
@@ -4304,6 +4350,7 @@ export default function App() {
                                 placeholder="0"
                                 value={formData.total_price}
                                 onChange={(e) => {
+                                  setGuestPriceDirty(true);
                                   setFormData({
                                     ...formData,
                                     total_price: e.target.value.replace(
