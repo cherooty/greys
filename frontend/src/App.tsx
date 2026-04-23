@@ -462,6 +462,29 @@ function formatBookingTableDayTime(
   );
 }
 
+function formatBookingTableArrivalDayTime(
+  isoDate: string,
+  time: string | null | undefined,
+): React.ReactNode {
+  const raw = (time ?? "").trim();
+  const hm = raw ? normalizeTimeHhMm(raw) : "";
+  return (
+    <div className="leading-tight">
+      <div
+        className={[
+          "whitespace-nowrap text-xs font-medium",
+          isTimelineWeekend(isoDate) ? "text-red-600" : "text-sky-700",
+        ].join(" ")}
+      >
+        {formatTimelineDayLabel(isoDate)}
+      </div>
+      <div className="whitespace-nowrap text-[10px] text-gray-500">
+        {hm || "—"}
+      </div>
+    </div>
+  );
+}
+
 function bookingTableSourceKey(source: string | undefined): keyof typeof SOURCES {
   if (source != null && source in SOURCES) {
     return source as keyof typeof SOURCES;
@@ -3289,11 +3312,15 @@ export default function App() {
                                         <div className="col-span-12 min-w-0 sm:col-auto sm:truncate">
                                           {item.guestLine}
                                         </div>
-                                        <div className="col-span-6 flex items-center justify-start whitespace-nowrap text-left sm:col-auto sm:w-full sm:justify-self-start">
-                                          <span
-                                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${item.sourceBadgeClass} text-gray-800`}
-                                          >
-                                            {item.sourceLabel}
+                                        <div className="col-span-6 min-w-0 whitespace-nowrap text-left sm:col-auto sm:w-full">
+                                          <span className="inline-flex min-w-0 max-w-full items-center gap-2">
+                                            <span
+                                              className={`h-2 w-2 shrink-0 rounded-full ${item.sourceBadgeClass}`}
+                                              aria-hidden
+                                            />
+                                            <span className="min-w-0 truncate">
+                                              {item.sourceLabel}
+                                            </span>
                                           </span>
                                         </div>
                                         <div className="col-span-3 whitespace-nowrap text-xs text-gray-500 sm:col-auto sm:text-sm">
@@ -3334,7 +3361,7 @@ export default function App() {
                     <thead>
                       <tr className="border-b border-gray-200">
                         <th
-                          className="w-[5rem] min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
+                          className="w-[9rem] min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
                           onClick={() => handleBookingsSort("check_in_date")}
                         >
                           Заезд{sortHeaderArrow("check_in_date")}
@@ -3395,8 +3422,8 @@ export default function App() {
                         <th
                           className="min-w-0 cursor-pointer whitespace-nowrap px-2 py-2 font-medium"
                           style={{
-                            width: "8ch",
-                            minWidth: "8ch",
+                            width: "11ch",
+                            minWidth: "11ch",
                           }}
                           onClick={() => handleBookingsSort("owner_price")}
                         >
@@ -3440,14 +3467,17 @@ export default function App() {
                       {sortedBookings.map((b) => {
                         const srcKey = bookingTableSourceKey(b.source);
                         const src = SOURCES[srcKey];
+                        const apartmentName =
+                          apartments?.find((a) => a.id === b.apartment_id)?.name ??
+                          String(b.apartment_id);
                         return (
                         <tr
                           key={b.id}
                           className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
                           onClick={() => openBookingModalForEdit(b)}
                         >
-                          <td className="w-[5rem] min-w-0 whitespace-nowrap px-2 py-2 align-top">
-                            {formatBookingTableDayTime(
+                          <td className="w-[9rem] min-w-0 whitespace-nowrap px-2 py-2 align-top">
+                            {formatBookingTableArrivalDayTime(
                               b.check_in_date,
                               b.check_in_time,
                             )}
@@ -3459,8 +3489,13 @@ export default function App() {
                             )}
                           </td>
                           <td className="w-[10ch] min-w-0 max-w-[10ch] truncate whitespace-nowrap px-2 py-2 align-top">
-                            {apartments?.find((a) => a.id === b.apartment_id)
-                              ?.name ?? b.apartment_id}
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span
+                                className={`h-1.5 w-1.5 shrink-0 rounded-full ${timelineApartmentDotClass(apartmentName)}`}
+                                aria-hidden
+                              />
+                              <span className="min-w-0 truncate">{apartmentName}</span>
+                            </span>
                           </td>
                           <td
                             className="min-w-0 truncate px-2 py-2 align-top"
@@ -3492,7 +3527,7 @@ export default function App() {
                             </span>
                           </td>
                           <td
-                            className="min-w-0 px-2 py-2 align-top text-right tabular-nums whitespace-nowrap"
+                            className="min-w-0 px-2 py-2 align-top text-center tabular-nums whitespace-nowrap"
                             style={{
                               width: "8ch",
                               minWidth: "8ch",
@@ -3503,14 +3538,18 @@ export default function App() {
                               : "—"}
                           </td>
                           <td
-                            className="min-w-0 px-2 py-2 align-top text-right tabular-nums whitespace-nowrap"
+                            className="min-w-0 px-2 py-2 align-top text-right tabular-nums whitespace-nowrap font-medium"
                             style={{
-                              width: "8ch",
-                              minWidth: "8ch",
+                              width: "11ch",
+                              minWidth: "11ch",
                             }}
                           >
                             {b.owner_price != null
-                              ? `${b.owner_price} ${bookingCurrencySymbol(b.currency)}`
+                              ? (
+                                <span className="text-green-700">
+                                  {formatTimelinePayout(b.owner_price)}
+                                </span>
+                              )
                               : "—"}
                           </td>
                           <td
