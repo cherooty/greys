@@ -205,6 +205,62 @@ type EventItem = {
   type: "holiday" | "city";
 };
 
+function buildRuOfficialHolidayMapForYear(
+  year: number,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  const put = (month: number, day: number, title: string) => {
+    const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    map[key] = title;
+  };
+
+  for (let d = 1; d <= 8; d++) {
+    put(1, d, d === 7 ? "Рождество" : "Новогодние каникулы");
+  }
+  put(2, 23, "День защитника Отечества");
+  put(3, 8, "Международный женский день");
+  put(5, 1, "Праздник Весны и Труда");
+  put(5, 9, "День Победы");
+  put(6, 12, "День России");
+  put(11, 4, "День народного единства");
+
+  return map;
+}
+
+function mergeRuOfficialHolidaysForMonth(
+  currentEvents: EventItem[],
+  monthKey: string,
+): EventItem[] {
+  const parts = monthKey.split("-");
+  if (parts.length !== 2) return currentEvents;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    return currentEvents;
+  }
+
+  const holidayMap = buildRuOfficialHolidayMapForYear(y);
+  const existingHolidayDates = new Set(
+    currentEvents.filter((e) => e.type === "holiday").map((e) => e.date),
+  );
+
+  const additions: EventItem[] = [];
+  const monthPrefix = `${parts[0]}-${parts[1]}-`;
+  for (const [date, title] of Object.entries(holidayMap)) {
+    if (!date.startsWith(monthPrefix)) continue;
+    if (existingHolidayDates.has(date)) continue;
+    additions.push({
+      id: `ru-holiday-${date}`,
+      date,
+      title,
+      type: "holiday",
+    });
+  }
+
+  if (additions.length === 0) return currentEvents;
+  return [...currentEvents, ...additions];
+}
+
 type BookingsResizableKey = "guest" | "comment";
 type BookingsViewMode = "table" | "timeline";
 type BookingSourceKey = keyof typeof SOURCES;
@@ -236,7 +292,7 @@ const ROW_HEIGHT = 2;
 
 const API_BASE = "http://localhost:8000";
 
-const events: EventItem[] = [
+const INITIAL_EVENTS: EventItem[] = [
   { id: "1", date: "2026-05-01", title: "Праздник весны", type: "holiday" },
   { id: "2", date: "2026-05-02", title: "Выходные", type: "holiday" },
   { id: "3", date: "2026-05-09", title: "День Победы", type: "holiday" },
@@ -345,6 +401,23 @@ function isoAddDays(isoDate: string, deltaDays: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate(),
   ).padStart(2, "0")}`;
+}
+
+function formatEventListDateLabel(isoStart: string, isoEnd: string): string {
+  const s = new Date(isoStart + "T12:00:00");
+  const e = new Date(isoEnd + "T12:00:00");
+  const single = s.getTime() === e.getTime();
+  if (single) {
+    return s.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  }
+  if (s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth()) {
+    const month = s.toLocaleDateString("ru-RU", { month: "long" });
+    return `${s.getDate()}–${e.getDate()} ${month}`;
+  }
+  return `${s.toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — ${e.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+  })}`;
 }
 
 function formatDateRU(iso: string) {
@@ -993,6 +1066,9 @@ export default function App() {
   const [priceMap, setPriceMap] = useState<
     Record<number, Record<string, { price: number | null; is_blocked: boolean }>>
   >({});
+  const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
+  const [priceCalendarHolidayMonthsLoaded, setPriceCalendarHolidayMonthsLoaded] =
+    useState<Record<string, true>>({});
 
   const [activeTab, setActiveTab] = useState<
     | "calendar"
@@ -1529,7 +1605,7 @@ export default function App() {
       map[e.date].push(e);
     });
     return map;
-  }, [enabledEvents]);
+  }, [events, enabledEvents]);
 
   const eventsGrouped = useMemo(() => {
     const map: Record<string, EventItem[]> = {};
@@ -1538,7 +1614,45 @@ export default function App() {
       map[e.date].push(e);
     });
     return map;
-  }, []);
+  }, [events]);
+
+  const eventRows = useMemo(() => {
+    const sorted = [...events].sort((a, b) => {
+      const c = a.date.localeCompare(b.date);
+      if (c !== 0) return c;
+      const t = a.title.localeCompare(b.title, "ru");
+      if (t !== 0) return t;
+      return a.id.localeCompare(b.id);
+    });
+    const rows: {
+      ids: string[];
+      type: EventItem["type"];
+      title: string;
+      start: string;
+      end: string;
+    }[] = [];
+    for (const e of sorted) {
+      const prev = rows[rows.length - 1];
+      if (
+        prev &&
+        prev.type === e.type &&
+        prev.title === e.title &&
+        isoAddDays(prev.end, 1) === e.date
+      ) {
+        prev.end = e.date;
+        prev.ids.push(e.id);
+      } else {
+        rows.push({
+          ids: [e.id],
+          type: e.type,
+          title: e.title,
+          start: e.date,
+          end: e.date,
+        });
+      }
+    }
+    return rows;
+  }, [events]);
 
   const calendarMonths = useMemo(() => buildMonthSections(12), []);
 
@@ -1802,6 +1916,31 @@ export default function App() {
       .then(setBookings)
       .catch(() => setBookings([]));
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "priceCalendar") return;
+    if (calendarMonths.length === 0) return;
+
+    const monthKeys = calendarMonths.map((m) => m.month);
+    const toLoad = monthKeys.filter((k) => !priceCalendarHolidayMonthsLoaded[k]);
+    if (toLoad.length === 0) return;
+
+    setEvents((prev) => {
+      let next = prev;
+      for (const monthKey of toLoad) {
+        next = mergeRuOfficialHolidaysForMonth(next, monthKey);
+      }
+      return next;
+    });
+
+    setPriceCalendarHolidayMonthsLoaded((prev) => {
+      const next = { ...prev };
+      for (const monthKey of toLoad) {
+        next[monthKey] = true;
+      }
+      return next;
+    });
+  }, [activeTab, calendarMonths, priceCalendarHolidayMonthsLoaded]);
 
   useEffect(() => {
     if (activeTab !== "calendar") return;
@@ -3210,45 +3349,36 @@ export default function App() {
           {activeTab === "events" && (
             <>
               <h2 className="text-xl font-semibold mb-4">События</h2>
-              <div className="bg-white rounded-xl shadow p-4 space-y-2 max-w-lg">
-                {(Object.entries(eventsGrouped) as [string, EventItem[]][])
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([date, list]) => (
-                    <div
-                      key={date}
-                      className="mb-4 border-b border-gray-100 pb-2 last:mb-0 last:border-b-0 last:pb-0"
-                    >
-                      <div className="text-sm font-semibold mb-1">
-                        {formatDay(date)}
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {list.map((e) => (
-                          <label
-                            key={e.id}
-                            className="flex items-center gap-2 text-sm cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={enabledEvents[e.id] !== false}
-                              onChange={() =>
-                                setEnabledEvents((prev) => ({
-                                  ...prev,
-                                  [e.id]: !(prev[e.id] ?? true),
-                                }))
-                              }
-                            />
-                            <span
-                              className={
-                                e.type === "holiday" ? "text-red-600" : ""
-                              }
-                            >
-                              {e.title}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+              <div className="bg-white rounded-xl shadow p-4 max-w-lg">
+                <div className="flex flex-col gap-1">
+                  {eventRows.map((row) => {
+                    const checked = row.ids.every((id) => enabledEvents[id] !== false);
+                    return (
+                      <label
+                        key={`${row.type}-${row.title}-${row.start}-${row.end}`}
+                        className="flex items-center gap-2 text-sm cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setEnabledEvents((prev) => {
+                              const next = { ...prev };
+                              for (const id of row.ids) next[id] = !checked;
+                              return next;
+                            })
+                          }
+                        />
+                        <span className="min-w-[7.5rem] shrink-0 text-gray-600">
+                          {formatEventListDateLabel(row.start, row.end)}
+                        </span>
+                        <span className={row.type === "holiday" ? "text-red-600" : ""}>
+                          {row.title}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}
