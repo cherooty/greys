@@ -207,6 +207,7 @@ type EventItem = {
 
 type BookingsResizableKey = "guest" | "comment";
 type BookingsViewMode = "table" | "timeline";
+type BookingSourceKey = keyof typeof SOURCES;
 type TimelineArrivalItem = {
   day: string;
   items: {
@@ -940,6 +941,9 @@ export default function App() {
   const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES);
   const [bookingsViewMode, setBookingsViewMode] =
     useState<BookingsViewMode>("table");
+  const [bookingsSourceFilterIds, setBookingsSourceFilterIds] = useState<
+    BookingSourceKey[]
+  >([]);
   const [timelineMonthOpen, setTimelineMonthOpen] = useState<
     Record<string, boolean>
   >({});
@@ -1495,11 +1499,24 @@ export default function App() {
     return d >= start && d <= end;
   }
 
-  const sortedBookings = useMemo(() => {
+  function toggleBookingsSourceFilter(id: BookingSourceKey) {
+    setBookingsSourceFilterIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
+  const bookingsFilteredByLocalSources = useMemo(() => {
     if (!bookings) return null;
+    if (bookingsSourceFilterIds.length === 0) return bookings;
+    const selected = new Set(bookingsSourceFilterIds);
+    return bookings.filter((b) => selected.has(bookingTableSourceKey(b.source)));
+  }, [bookings, bookingsSourceFilterIds]);
+
+  const sortedBookings = useMemo(() => {
+    if (!bookingsFilteredByLocalSources) return null;
     const aptName = (id: number) =>
       apartments?.find((x) => x.id === id)?.name ?? String(id);
-    const list = [...bookings];
+    const list = [...bookingsFilteredByLocalSources];
     list.sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -1538,7 +1555,7 @@ export default function App() {
       return cmp;
     });
     return list;
-  }, [bookings, apartments, sortField, sortDirection]);
+  }, [bookingsFilteredByLocalSources, apartments, sortField, sortDirection]);
 
   const calendarVisibleBookings = useMemo(() => {
     if (!bookings) return null;
@@ -1868,7 +1885,7 @@ export default function App() {
   }
 
   const timelineMonthGroups = useMemo(() => {
-    if (!bookings || bookings.length === 0)
+    if (!bookingsFilteredByLocalSources || bookingsFilteredByLocalSources.length === 0)
       return [] as {
         monthKey: string;
         monthLabel: string;
@@ -1878,7 +1895,7 @@ export default function App() {
         days: TimelineArrivalItem[];
       }[];
 
-    const arrivals = bookings
+    const arrivals = bookingsFilteredByLocalSources
       .map((b) => {
         const day = (b.check_in_date ?? "").slice(0, 10);
         if (!day) return null;
@@ -2025,7 +2042,7 @@ export default function App() {
             ),
           })),
       }));
-  }, [bookings, apartments]);
+  }, [bookingsFilteredByLocalSources, apartments]);
 
   useEffect(() => {
     const currentMonthKey = localTodayKey().slice(0, 7);
@@ -3140,6 +3157,46 @@ export default function App() {
                 >
                   Лента
                 </button>
+              </div>
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBookingsSourceFilterIds([])}
+                  className={[
+                    "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                    bookingsSourceFilterIds.length === 0
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
+                  ].join(" ")}
+                >
+                  Все источники
+                </button>
+                {(
+                  Object.keys(SOURCES) as BookingSourceKey[]
+                ).map((sourceKey) => {
+                  const src = SOURCES[sourceKey];
+                  const active = bookingsSourceFilterIds.includes(sourceKey);
+                  return (
+                    <button
+                      key={sourceKey}
+                      type="button"
+                      onClick={() => toggleBookingsSourceFilter(sourceKey)}
+                      className={[
+                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                        active
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${src.color}`}
+                        aria-hidden
+                      />
+                      <span>{src.label}</span>
+                      {active && <span>✓</span>}
+                    </button>
+                  );
+                })}
               </div>
               {bookingsViewMode === "timeline" ? (
                 <div className="flex min-h-0 flex-1 w-full max-w-full flex-col rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600 shadow">
