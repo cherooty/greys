@@ -1482,6 +1482,12 @@ export default function App() {
     }));
   }
 
+  function openBookingModalById(bookingId: number) {
+    const b = bookings?.find((x) => x.id === bookingId);
+    if (!b) return;
+    openBookingModalForEdit(b);
+  }
+
   function isMonthExpanded(monthKey: string) {
     return expandedMonths[monthKey] === true;
   }
@@ -3265,7 +3271,8 @@ export default function App() {
                                     {dayGroup.items.map((item) => (
                                       <div
                                         key={item.id}
-                                        className="grid grid-cols-12 items-center gap-x-2 gap-y-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 transition-colors hover:bg-gray-100 sm:grid-cols-[7.2rem_minmax(0,1fr)_max-content_3.6rem_5rem_6.5rem]"
+                                        className="grid cursor-pointer grid-cols-12 items-center gap-x-2 gap-y-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 transition-colors hover:bg-gray-100 sm:grid-cols-[7.2rem_minmax(0,1fr)_max-content_3.6rem_5rem_6.5rem]"
+                                        onClick={() => openBookingModalById(item.id)}
                                       >
                                         <div className="col-span-12 flex items-center gap-1.5 whitespace-nowrap sm:col-auto">
                                           <span className="w-10 shrink-0 text-xs tabular-nums text-gray-500">
