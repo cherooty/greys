@@ -88,7 +88,7 @@ type EventItem = {
   id: string;
   date: string;
   title: string;
-  type: "holiday" | "city";
+  type: "holiday" | "city" | "custom";
 };
 
 function normalizeRange(start: string, end: string): { lo: string; hi: string } {
@@ -146,6 +146,11 @@ type PriceCalendarProps = {
   enabledEvents: Record<string, boolean>;
   /** Внешний контейнер крутит скролл (sticky-заголовок в App); без вложенного overflow-auto */
   scrollMode?: "internal" | "parent";
+  onAddEvent?: (payload: {
+    date: string;
+    title: string;
+    type: EventItem["type"];
+  }) => void;
 };
 
 export default function PriceCalendar({
@@ -153,6 +158,7 @@ export default function PriceCalendar({
   events,
   enabledEvents,
   scrollMode = "internal",
+  onAddEvent,
 }: PriceCalendarProps) {
   const months = useMemo(() => buildMonthSections(12), []);
   const todayKey = useMemo(() => {
@@ -183,6 +189,12 @@ export default function PriceCalendar({
     y: number;
     day: string;
   } | null>(null);
+  const [eventModal, setEventModal] = useState<{
+    date: string;
+    title: string;
+    type: EventItem["type"];
+  } | null>(null);
+  const [eventModalError, setEventModalError] = useState<string | null>(null);
   const [hoverEventTooltip, setHoverEventTooltip] = useState<{
     date: string;
     x: number;
@@ -262,10 +274,13 @@ export default function PriceCalendar({
       setContextMenu(null);
       if (
         !target.closest("[data-price-modal]") &&
-        !target.closest("[data-price-context]")
+        !target.closest("[data-price-context]") &&
+        !target.closest("[data-price-event-modal]")
       ) {
         setEditModal(null);
+        setEventModal(null);
       }
+      setEventModalError(null);
     };
     window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
@@ -275,6 +290,7 @@ export default function PriceCalendar({
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setEditModal(null);
+        setEventModal(null);
       }
     };
     window.addEventListener("keydown", handler);
@@ -347,6 +363,32 @@ export default function PriceCalendar({
         y: e.clientY + 20,
       });
     }
+  }
+
+  function openAddEventModal(day: string) {
+    setEventModal({
+      date: day,
+      title: "",
+      type: "holiday",
+    });
+    setEventModalError(null);
+  }
+
+  function saveManualEvent() {
+    if (!eventModal) return;
+    const title = eventModal.title.trim();
+    if (!title) {
+      setEventModalError("Введите название события");
+      return;
+    }
+    onAddEvent?.({
+      date: eventModal.date,
+      title,
+      type: eventModal.type,
+    });
+    setEventModal(null);
+    setEventModalError(null);
+    setContextMenu(null);
   }
 
   function placeEventHoverTooltip(
@@ -623,6 +665,114 @@ export default function PriceCalendar({
           >
             Изменить
           </button>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left hover:bg-gray-100"
+            onClick={() => {
+              openAddEventModal(contextMenu.day);
+              setContextMenu(null);
+            }}
+          >
+            Добавить событие
+          </button>
+        </div>
+      ) : null}
+
+      {eventModal ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/20 p-4">
+          <div
+            data-price-event-modal
+            className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 text-sm font-semibold text-gray-900">
+              Добавить событие
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Дата
+                </label>
+                <input
+                  type="date"
+                  value={eventModal.date}
+                  onChange={(e) =>
+                    setEventModal((prev) =>
+                      prev ? { ...prev, date: e.target.value } : prev,
+                    )
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Название
+                </label>
+                <input
+                  type="text"
+                  value={eventModal.title}
+                  onChange={(e) => {
+                    setEventModalError(null);
+                    setEventModal((prev) =>
+                      prev ? { ...prev, title: e.target.value } : prev,
+                    );
+                  }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  placeholder="Например: Концерт"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Тип
+                </label>
+                <select
+                  value={eventModal.type}
+                  onChange={(e) =>
+                    setEventModal((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            type: e.target.value as EventItem["type"],
+                          }
+                        : prev,
+                    )
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                >
+                  <option value="holiday">Праздник</option>
+                  <option value="city">Городское событие</option>
+                  <option value="custom">Другое</option>
+                </select>
+              </div>
+
+              {eventModalError ? (
+                <div className="text-xs text-red-600">{eventModalError}</div>
+              ) : null}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
+                onClick={() => {
+                  setEventModal(null);
+                  setEventModalError(null);
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                onClick={saveManualEvent}
+              >
+                Сохранить
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

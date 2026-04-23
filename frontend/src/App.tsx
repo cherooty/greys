@@ -202,7 +202,7 @@ type EventItem = {
   id: string;
   date: string;
   title: string;
-  type: "holiday" | "city";
+  type: "holiday" | "city" | "custom";
 };
 
 function buildRuOfficialHolidayMapForYear(
@@ -1976,6 +1976,23 @@ export default function App() {
       return next;
     });
   }, [activeTab, calendarMonths, priceCalendarHolidayMonthsLoaded]);
+
+  function addManualPriceCalendarEvent(payload: {
+    date: string;
+    title: string;
+    type: EventItem["type"];
+  }) {
+    const title = payload.title.trim();
+    const date = payload.date.slice(0, 10);
+    if (!title || !date) return;
+    const id = `manual-event-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    setEvents((prev) => [
+      ...prev,
+      { id, date, title, type: payload.type },
+    ]);
+  }
 
   useEffect(() => {
     if (activeTab !== "calendar") return;
@@ -3949,6 +3966,7 @@ export default function App() {
                               apartmentId={apartments?.[0]?.id || 1}
                               events={events}
                               enabledEvents={enabledEvents}
+                              onAddEvent={addManualPriceCalendarEvent}
                               scrollMode="parent"
                             />
                           </div>
@@ -3962,6 +3980,7 @@ export default function App() {
                               apartmentId={apartments?.[1]?.id || 2}
                               events={events}
                               enabledEvents={enabledEvents}
+                              onAddEvent={addManualPriceCalendarEvent}
                               scrollMode="parent"
                             />
                           </div>
