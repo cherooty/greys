@@ -967,6 +967,9 @@ export default function App() {
   const [bookingsSourceFilterIds, setBookingsSourceFilterIds] = useState<
     BookingSourceKey[]
   >([]);
+  const [bookingsStudioFilterIds, setBookingsStudioFilterIds] = useState<
+    number[]
+  >([]);
   const [timelineMonthOpen, setTimelineMonthOpen] = useState<
     Record<string, boolean>
   >({});
@@ -1534,6 +1537,12 @@ export default function App() {
     );
   }
 
+  function toggleBookingsStudioFilter(id: number) {
+    setBookingsStudioFilterIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
   const bookingsFilteredByLocalSources = useMemo(() => {
     if (!bookings) return null;
     if (bookingsSourceFilterIds.length === 0) return bookings;
@@ -1541,11 +1550,20 @@ export default function App() {
     return bookings.filter((b) => selected.has(bookingTableSourceKey(b.source)));
   }, [bookings, bookingsSourceFilterIds]);
 
-  const sortedBookings = useMemo(() => {
+  const bookingsFilteredByLocalFilters = useMemo(() => {
     if (!bookingsFilteredByLocalSources) return null;
+    if (bookingsStudioFilterIds.length === 0) return bookingsFilteredByLocalSources;
+    const selectedStudios = new Set(bookingsStudioFilterIds);
+    return bookingsFilteredByLocalSources.filter((b) =>
+      selectedStudios.has(b.apartment_id),
+    );
+  }, [bookingsFilteredByLocalSources, bookingsStudioFilterIds]);
+
+  const sortedBookings = useMemo(() => {
+    if (!bookingsFilteredByLocalFilters) return null;
     const aptName = (id: number) =>
       apartments?.find((x) => x.id === id)?.name ?? String(id);
-    const list = [...bookingsFilteredByLocalSources];
+    const list = [...bookingsFilteredByLocalFilters];
     list.sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -1584,7 +1602,7 @@ export default function App() {
       return cmp;
     });
     return list;
-  }, [bookingsFilteredByLocalSources, apartments, sortField, sortDirection]);
+  }, [bookingsFilteredByLocalFilters, apartments, sortField, sortDirection]);
 
   const calendarVisibleBookings = useMemo(() => {
     if (!bookings) return null;
@@ -1914,17 +1932,21 @@ export default function App() {
   }
 
   const timelineMonthGroups = useMemo(() => {
-    if (!bookingsFilteredByLocalSources || bookingsFilteredByLocalSources.length === 0)
+    if (!bookingsFilteredByLocalFilters || bookingsFilteredByLocalFilters.length === 0)
       return [] as {
         monthKey: string;
         monthLabel: string;
         bookingsCount: number;
         occupancySummary: string;
+        monthIncomeLabel: string;
+        avgOccupiedLabel: string;
+        avgCalendarLabel: string;
+        monthIncome: number;
         occupancyByApartment: { apartmentName: string; nights: number }[];
         days: TimelineArrivalItem[];
       }[];
 
-    const arrivals = bookingsFilteredByLocalSources
+    const arrivals = bookingsFilteredByLocalFilters
       .map((b) => {
         const day = (b.check_in_date ?? "").slice(0, 10);
         if (!day) return null;
@@ -1949,6 +1971,7 @@ export default function App() {
           sourceBadgeClass: SOURCES[sourceKey].color,
           nightsLabel: formatTimelineNights(b.check_in_date, b.check_out_date),
           checkoutLabel: formatCheckoutCompact(b.check_out_date, b.check_out_time),
+          ownerIncome: b.owner_price != null && Number.isFinite(Number(b.owner_price)) ? Number(b.owner_price) : 0,
           payoutLabel: formatTimelinePayout(b.owner_price),
           payoutHasValue: b.owner_price != null && !Number.isNaN(b.owner_price),
         };
@@ -1971,6 +1994,7 @@ export default function App() {
           nightsLabel: string;
           checkoutLabel: string;
           payoutLabel: string;
+          ownerIncome: number;
           payoutHasValue: boolean;
           nights: number;
         } => v !== null,
@@ -2006,6 +2030,8 @@ export default function App() {
     >();
     const byMonthApartmentNights = new Map<string, Map<string, number>>();
     const byMonthBookingCount = new Map<string, number>();
+    const byMonthOwnerIncome = new Map<string, number>();
+    const byMonthOccupiedNights = new Map<string, number>();
     for (const item of arrivals) {
       if (!byMonth.has(item.monthKey)) byMonth.set(item.monthKey, new Map());
       const byDay = byMonth.get(item.monthKey)!;
@@ -2038,6 +2064,14 @@ export default function App() {
         item.monthKey,
         (byMonthBookingCount.get(item.monthKey) ?? 0) + 1,
       );
+      byMonthOwnerIncome.set(
+        item.monthKey,
+        (byMonthOwnerIncome.get(item.monthKey) ?? 0) + item.ownerIncome,
+      );
+      byMonthOccupiedNights.set(
+        item.monthKey,
+        (byMonthOccupiedNights.get(item.monthKey) ?? 0) + item.nights,
+      );
     }
 
     return Array.from(byMonth.entries())
@@ -2050,6 +2084,21 @@ export default function App() {
             year: "numeric",
           }),
         ),
+        monthIncome: byMonthOwnerIncome.get(monthKey) ?? 0,
+        monthIncomeLabel: formatTimelinePayout(
+          byMonthOwnerIncome.get(monthKey) ?? 0,
+        ),
+        avgOccupiedLabel:
+          (byMonthOccupiedNights.get(monthKey) ?? 0) > 0
+            ? `${formatRubMoney((byMonthOwnerIncome.get(monthKey) ?? 0) / (byMonthOccupiedNights.get(monthKey) ?? 1))} зан.`
+            : "— зан.",
+        avgCalendarLabel: (() => {
+          const daysInMonth = new Date(`${monthKey}-01T12:00:00`).getMonth() === 11
+            ? 31
+            : new Date(new Date(`${monthKey}-01T12:00:00`).getFullYear(), new Date(`${monthKey}-01T12:00:00`).getMonth() + 1, 0).getDate();
+          const studiosCount = apartments?.length ?? 0;
+          return daysInMonth * studiosCount > 0 ? `${formatRubMoney((byMonthOwnerIncome.get(monthKey) ?? 0) / (daysInMonth * studiosCount))} кал.` : "— кал.";
+        })(),
         bookingsCount: byMonthBookingCount.get(monthKey) ?? 0,
         occupancyByApartment: Array.from(
           (byMonthApartmentNights.get(monthKey) ?? new Map()).entries(),
@@ -2071,7 +2120,7 @@ export default function App() {
             ),
           })),
       }));
-  }, [bookingsFilteredByLocalSources, apartments]);
+  }, [bookingsFilteredByLocalFilters, apartments]);
 
   useEffect(() => {
     const currentMonthKey = localTodayKey().slice(0, 7);
@@ -3227,6 +3276,44 @@ export default function App() {
                   );
                 })}
               </div>
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBookingsStudioFilterIds([])}
+                  className={[
+                    "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                    bookingsStudioFilterIds.length === 0
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
+                  ].join(" ")}
+                >
+                  Все студии
+                </button>
+                {(apartments ?? []).map((a) => {
+                  const active = bookingsStudioFilterIds.includes(a.id);
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => toggleBookingsStudioFilter(a.id)}
+                      className={[
+                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                        active
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${timelineApartmentDotClass(
+                          a.name,
+                        )}`}
+                        aria-hidden
+                      />
+                      <span>{a.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
               {bookingsViewMode === "timeline" ? (
                 <div className="flex min-h-0 flex-1 w-full max-w-full flex-col rounded-xl border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600 shadow">
                   {timelineMonthGroups.length === 0 ? (
@@ -3241,7 +3328,7 @@ export default function App() {
                         >
                           <button
                             type="button"
-                            className="mb-2 flex min-h-[30px] w-full items-center justify-between rounded-md px-2 py-0.5 text-left hover:bg-gray-50"
+                            className="mb-2 grid min-h-[30px] w-full grid-cols-[minmax(0,1fr)_9.5rem_1rem] items-center gap-x-2 rounded-md px-2 py-0.5 text-left hover:bg-gray-50"
                             onClick={() =>
                               toggleTimelineMonth(monthGroup.monthKey)
                             }
@@ -3270,7 +3357,15 @@ export default function App() {
                                 ))}
                               </div>
                             </div>
-                            <span className="ml-2 text-xs text-gray-500">
+                            <div className="w-[9.5rem] shrink-0 text-right leading-tight">
+                              <div className="whitespace-nowrap text-sm font-semibold text-green-700">
+                                {monthGroup.monthIncomeLabel}
+                              </div>
+                              <div className="whitespace-nowrap text-[11px] text-gray-500">
+                                {monthGroup.avgOccupiedLabel} / {monthGroup.avgCalendarLabel}
+                              </div>
+                            </div>
+                            <span className="justify-self-end text-xs text-gray-500">
                               {timelineMonthOpen[monthGroup.monthKey]
                                 ? "▼"
                                 : "▶"}
