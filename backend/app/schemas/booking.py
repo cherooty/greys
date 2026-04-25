@@ -7,6 +7,8 @@ class BookingBase(BaseModel):
     apartment_id: int
     guest_name: str
     guest_contact: str | None = None
+    guests_count: int | None = None
+    messengers: str | None = None
     check_in_date: date
     check_out_date: date
     check_in_time: str | None = None
@@ -19,6 +21,11 @@ class BookingBase(BaseModel):
     external_source: str | None = None
     external_id: str | None = None
     notes: str | None = None
+    commission_price: float | None = None
+    commission_percent: float | None = None
+    paid_amount: float | None = None
+    paid_date: date | None = None
+    payment_method: str | None = None
 
 
 class BookingCreate(BookingBase):
@@ -29,6 +36,9 @@ class BookingUpdate(BaseModel):
     check_in_date: date
     check_out_date: date
     guest_name: str
+    guest_contact: str | None = None
+    guests_count: int | None = None
+    messengers: str | None = None
     total_price: float
     owner_price: float | None = None
     currency: str = "RUB"
@@ -36,6 +46,11 @@ class BookingUpdate(BaseModel):
     check_out_time: str | None = None
     notes: str | None = None
     source: str = "manual"
+    commission_price: float | None = None
+    commission_percent: float | None = None
+    paid_amount: float | None = None
+    paid_date: date | None = None
+    payment_method: str | None = None
 
 
 class BookingResponse(BookingBase):

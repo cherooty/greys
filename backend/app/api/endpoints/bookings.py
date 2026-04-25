@@ -114,6 +114,9 @@ def update_booking_dates(
     booking.check_in_date = body.check_in_date
     booking.check_out_date = body.check_out_date
     booking.guest_name = body.guest_name
+    booking.guest_contact = body.guest_contact
+    booking.guests_count = body.guests_count
+    booking.messengers = body.messengers
     booking.total_price = body.total_price
     booking.owner_price = body.owner_price
     booking.currency = body.currency
@@ -121,6 +124,11 @@ def update_booking_dates(
     booking.check_out_time = body.check_out_time
     booking.notes = body.notes
     booking.source = body.source
+    booking.commission_price = body.commission_price
+    booking.commission_percent = body.commission_percent
+    booking.paid_amount = body.paid_amount
+    booking.paid_date = body.paid_date
+    booking.payment_method = body.payment_method
     db.commit()
     db.refresh(booking)
     return booking

@@ -1161,7 +1161,7 @@ export default function App() {
     commissionPct: "17",
     paidRub: "",
     paidDateDmy: "",
-    paymentMethod: "cash" as "cash" | "alpha",
+    paymentMethod: "" as "" | "cash" | "alpha",
   });
 
   const [sortField, setSortField] = useState<string>("check_in_date");
@@ -1330,6 +1330,28 @@ export default function App() {
     openBookingModalForCreateRange(apartmentId, start, lastStay);
   }
 
+  function parseRubInput(raw: string | null | undefined): number {
+    const digits = String(raw ?? "").replace(/[^\d]/g, "");
+    if (!digits) return 0;
+    const n = Number(digits);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function recalcGuestFromCommissionAndOwner(
+    commissionRub: string,
+    ownerRub: string,
+  ) {
+    const commission = parseRubInput(commissionRub);
+    const owner = parseRubInput(ownerRub);
+    const total = commission + owner;
+    const pct = total > 0 ? Math.round((commission / total) * 1000) / 10 : 0;
+    setFormData((prev) => ({ ...prev, total_price: total > 0 ? String(total) : "" }));
+    setBookingFinanceExtra((prev) => ({
+      ...prev,
+      commissionPct: total > 0 ? String(pct) : "",
+    }));
+  }
+
   function openBookingModalForEdit(b: Booking) {
     setBookingModal({
       bookingId: b.id,
@@ -1396,7 +1418,10 @@ export default function App() {
         b.paid_date != null && String(b.paid_date).trim()
           ? isoYmdToRuDmy(String(b.paid_date).trim().slice(0, 10))
           : "",
-      paymentMethod: b.payment_method === "alpha" ? "alpha" : "cash",
+      paymentMethod:
+        b.payment_method === "alpha" || b.payment_method === "cash"
+          ? b.payment_method
+          : "",
     });
     const msg = decodeBookingMessengers(b.messengers);
     setBookingModalMain((p) => ({
@@ -1437,7 +1462,7 @@ export default function App() {
       commissionPct: String(Math.round(p)),
       paidRub: "",
       paidDateDmy: "",
-      paymentMethod: "cash",
+      paymentMethod: "",
     });
   }, [bookingModal?.apartmentId, bookingModal?.start, bookingModal?.end]);
 
@@ -4248,61 +4273,6 @@ export default function App() {
                             aria-label="Время выезда"
                           />
                         </div>
-                        {(() => {
-                          const nightsOwn = Math.max(
-                            1,
-                            bookingNightCountForModal(
-                              bookingModal.start,
-                              bookingModal.end,
-                            ),
-                          );
-                          const handOwn = parseOwnerHandInput(
-                            formData.owner_price,
-                          );
-                          const ownerPerNight =
-                            handOwn != null && Number.isFinite(handOwn)
-                              ? Math.round(handOwn / nightsOwn)
-                              : null;
-                          return (
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="shrink-0 text-xs font-medium text-gray-600">
-                                Мне на руки:
-                              </span>
-                              <input
-                                placeholder="Мои деньги"
-                                className="w-[6.75rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm font-bold tabular-nums text-green-700"
-                                inputMode="decimal"
-                                value={formData.owner_price}
-                                onChange={(e) => {
-                                  setOwnerHandDirty(true);
-                                  setFormData({
-                                    ...formData,
-                                    owner_price: e.target.value.replace(
-                                      /[^\d\s,.\-]/g,
-                                      "",
-                                    ),
-                                  });
-                                }}
-                                onBlur={() => {
-                                  const raw = normalizeOwnerPriceForBlurFormat(
-                                    formData.owner_price,
-                                  );
-                                  setFormData((p) => ({
-                                    ...p,
-                                    owner_price:
-                                      fmtOwnerPriceThousandsForInput(raw),
-                                  }));
-                                }}
-                                aria-label="Мне на руки"
-                              />
-                              {ownerPerNight != null ? (
-                                <span className="shrink-0 text-xs tabular-nums text-gray-600">
-                                  {ownerPerNight} ₽/сут
-                                </span>
-                              ) : null}
-                            </div>
-                          );
-                        })()}
                         <div className="space-y-0.5">
                           <div className="text-xs font-medium text-gray-600">
                             Источник
@@ -4489,47 +4459,24 @@ export default function App() {
                           </label>
                         </div>
                       </div>
-                    <details
-                      key={`bm-notes-${bookingModal.bookingId ?? "new"}-${bookingModal.start}-${bookingModal.end}`}
-                      className="min-w-0 rounded-md border border-gray-200 bg-white md:col-span-2"
-                      defaultOpen={formData.notes.trim().length > 0}
-                    >
-                      <summary className="cursor-pointer list-none px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <span
-                            className="shrink-0 font-mono text-[11px] leading-none text-gray-500"
-                            aria-hidden
-                          >
-                            ▸
-                          </span>
-                          <span className="shrink-0">Коммент</span>
-                          {formData.notes.trim() ? (
-                            <span
-                              className="min-w-0 truncate font-normal text-gray-500"
-                              title={formData.notes.trim()}
-                            >
-                              · {formData.notes.trim().slice(0, 60)}
-                              {formData.notes.trim().length > 60 ? "…" : ""}
-                            </span>
-                          ) : null}
-                        </span>
-                      </summary>
-                      <div className="px-2 pb-2">
-                        <textarea
-                          rows={2}
-                          className="mt-1 w-full min-w-0 resize-none rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900"
-                          placeholder="Комментарий"
-                          value={formData.notes}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              notes: e.target.value,
-                            })
-                          }
-                          aria-label="Комментарий к брони"
-                        />
+                    <div className="min-w-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 md:col-span-2">
+                      <div className="text-xs font-medium text-gray-700">
+                        Коммент
                       </div>
-                    </details>
+                      <textarea
+                        rows={2}
+                        className="mt-1 w-full min-w-0 min-h-[2.5rem] resize-y rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900"
+                        placeholder="Комментарий"
+                        value={formData.notes}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            notes: e.target.value,
+                          })
+                        }
+                        aria-label="Комментарий к брони"
+                      />
+                    </div>
                     </div>
                   </section>
 
@@ -4561,6 +4508,96 @@ export default function App() {
                       return (
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
                           <div className="min-w-0 space-y-2.5">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Комиссия сайта:
+                              </span>
+                              <input
+                                className="w-[6.5rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm tabular-nums text-gray-900"
+                                inputMode="decimal"
+                                value={bookingFinanceExtra.commissionRub}
+                                onChange={(e) => {
+                                  const next = e.target.value.replace(
+                                      /[^\d\s,.\-]/g,
+                                      "",
+                                    );
+                                  setOwnerHandDirty(true);
+                                  setGuestPriceDirty(true);
+                                  setBookingFinanceExtra((p) => ({
+                                    ...p,
+                                    commissionRub: next,
+                                  }));
+                                  recalcGuestFromCommissionAndOwner(
+                                    next,
+                                    formData.owner_price,
+                                  );
+                                }}
+                                onBlur={() => {
+                                  const raw = normalizeOwnerPriceForBlurFormat(
+                                    bookingFinanceExtra.commissionRub,
+                                  );
+                                  const formatted =
+                                    fmtOwnerPriceThousandsForInput(raw);
+                                  setBookingFinanceExtra((p) => ({
+                                    ...p,
+                                    commissionRub: formatted,
+                                  }));
+                                  recalcGuestFromCommissionAndOwner(
+                                    formatted,
+                                    formData.owner_price,
+                                  );
+                                }}
+                                aria-label="Комиссия сайта, сумма"
+                              />
+                            </div>
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="shrink-0 text-xs font-medium text-gray-600">
+                                Мне на руки:
+                              </span>
+                              <input
+                                className="w-[7.25rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm font-bold tabular-nums text-green-700"
+                                inputMode="decimal"
+                                placeholder="Мои деньги"
+                                value={formData.owner_price}
+                                onChange={(e) => {
+                                  setOwnerHandDirty(true);
+                                  setGuestPriceDirty(true);
+                                  const next = e.target.value.replace(
+                                    /[^\d\s,.\-]/g,
+                                    "",
+                                  );
+                                  setFormData({
+                                    ...formData,
+                                    owner_price: next,
+                                  });
+                                  recalcGuestFromCommissionAndOwner(
+                                    bookingFinanceExtra.commissionRub,
+                                    next,
+                                  );
+                                }}
+                                onBlur={() => {
+                                  const raw = normalizeOwnerPriceForBlurFormat(
+                                    formData.owner_price,
+                                  );
+                                  const formatted =
+                                    fmtOwnerPriceThousandsForInput(raw);
+                                  setFormData((p) => ({
+                                    ...p,
+                                    owner_price: formatted,
+                                  }));
+                                  recalcGuestFromCommissionAndOwner(
+                                    bookingFinanceExtra.commissionRub,
+                                    formatted,
+                                  );
+                                }}
+                                aria-label="Мне на руки, финансы"
+                              />
+                              {ownerPerNight != null ? (
+                                <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                                  {ownerPerNight} {curSym}/сут
+                                </span>
+                              ) : null}
+                            </div>
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="shrink-0 text-xs font-medium text-gray-600">
                                 Цена гостя:
@@ -4600,43 +4637,19 @@ export default function App() {
                             </div>
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="shrink-0 text-xs font-medium text-gray-600">
-                                Комиссия сайта:
+                                % комиссии сайта:
                               </span>
                               <input
-                                className="w-[6.5rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm tabular-nums text-gray-900"
+                                className="w-14 shrink-0 rounded-md border border-gray-200 bg-white px-1 py-1.5 text-center text-xs tabular-nums text-gray-900"
                                 inputMode="decimal"
-                                value={bookingFinanceExtra.commissionRub}
-                                onChange={(e) =>
-                                  setBookingFinanceExtra((p) => ({
-                                    ...p,
-                                    commissionRub: e.target.value.replace(
-                                      /[^\d\s,.\-]/g,
-                                      "",
-                                    ),
-                                  }))
-                                }
-                                onBlur={() => {
-                                  const raw = normalizeOwnerPriceForBlurFormat(
-                                    bookingFinanceExtra.commissionRub,
-                                  );
-                                  setBookingFinanceExtra((p) => ({
-                                    ...p,
-                                    commissionRub:
-                                      fmtOwnerPriceThousandsForInput(raw),
-                                  }));
-                                }}
-                                aria-label="Комиссия сайта, сумма"
-                              />
-                              <input
-                                className="w-12 shrink-0 rounded-md border border-gray-200 bg-white px-1 py-1.5 text-center text-xs tabular-nums text-gray-900"
-                                inputMode="numeric"
                                 value={bookingFinanceExtra.commissionPct}
                                 onChange={(e) =>
                                   setBookingFinanceExtra((p) => ({
                                     ...p,
                                     commissionPct: e.target.value
-                                      .replace(/\D/g, "")
-                                      .slice(0, 3),
+                                      .replace(",", ".")
+                                      .replace(/[^\d.]/g, "")
+                                      .slice(0, 5),
                                   }))
                                 }
                                 onBlur={() =>
@@ -4645,12 +4658,17 @@ export default function App() {
                                       100,
                                       Math.max(
                                         0,
-                                        Number(p.commissionPct) || 0,
+                                        Number(
+                                          p.commissionPct.replace(",", "."),
+                                        ) || 0,
                                       ),
                                     );
                                     return {
                                       ...p,
-                                      commissionPct: String(Math.round(n)),
+                                      commissionPct:
+                                        Math.round(n * 10) % 10 === 0
+                                          ? String(Math.round(n))
+                                          : String(Math.round(n * 10) / 10),
                                     };
                                   })
                                 }
@@ -4659,43 +4677,6 @@ export default function App() {
                               <span className="shrink-0 text-xs text-gray-500">
                                 %
                               </span>
-                            </div>
-                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="shrink-0 text-xs font-medium text-gray-600">
-                                Мне на руки:
-                              </span>
-                              <input
-                                className="w-[7.25rem] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-center text-sm font-bold tabular-nums text-green-700"
-                                inputMode="decimal"
-                                placeholder="Мои деньги"
-                                value={formData.owner_price}
-                                onChange={(e) => {
-                                  setOwnerHandDirty(true);
-                                  setFormData({
-                                    ...formData,
-                                    owner_price: e.target.value.replace(
-                                      /[^\d\s,.\-]/g,
-                                      "",
-                                    ),
-                                  });
-                                }}
-                                onBlur={() => {
-                                  const raw = normalizeOwnerPriceForBlurFormat(
-                                    formData.owner_price,
-                                  );
-                                  setFormData((p) => ({
-                                    ...p,
-                                    owner_price:
-                                      fmtOwnerPriceThousandsForInput(raw),
-                                  }));
-                                }}
-                                aria-label="Мне на руки, финансы"
-                              />
-                              {ownerPerNight != null ? (
-                                <span className="shrink-0 text-xs tabular-nums text-gray-500">
-                                  {ownerPerNight} {curSym}/сут
-                                </span>
-                              ) : null}
                             </div>
                           </div>
                           <div className="min-w-0 space-y-2.5">
@@ -4736,6 +4717,49 @@ export default function App() {
                                 >
                                   {curSym}
                                 </span>
+                              </div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-medium text-gray-600">
+                                Способ оплаты
+                              </div>
+                              <div className="flex flex-row flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                                <label className="inline-flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="booking-pay-method"
+                                    className="border-gray-300"
+                                    checked={
+                                      bookingFinanceExtra.paymentMethod ===
+                                      "cash"
+                                    }
+                                    onChange={() =>
+                                      setBookingFinanceExtra((p) => ({
+                                        ...p,
+                                        paymentMethod: "cash",
+                                      }))
+                                    }
+                                  />
+                                  Наличные
+                                </label>
+                                <label className="inline-flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="booking-pay-method"
+                                    className="border-gray-300"
+                                    checked={
+                                      bookingFinanceExtra.paymentMethod ===
+                                      "alpha"
+                                    }
+                                    onChange={() =>
+                                      setBookingFinanceExtra((p) => ({
+                                        ...p,
+                                        paymentMethod: "alpha",
+                                      }))
+                                    }
+                                  />
+                                  Альфа-карта
+                                </label>
                               </div>
                             </div>
                             <div className="space-y-0.5">
@@ -4819,49 +4843,6 @@ export default function App() {
                                 >
                                   Сегодня
                                 </button>
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <div className="text-xs font-medium text-gray-600">
-                                Способ оплаты
-                              </div>
-                              <div className="flex flex-row flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-                                <label className="inline-flex cursor-pointer items-center gap-2">
-                                  <input
-                                    type="radio"
-                                    name="booking-pay-method"
-                                    className="border-gray-300"
-                                    checked={
-                                      bookingFinanceExtra.paymentMethod ===
-                                      "cash"
-                                    }
-                                    onChange={() =>
-                                      setBookingFinanceExtra((p) => ({
-                                        ...p,
-                                        paymentMethod: "cash",
-                                      }))
-                                    }
-                                  />
-                                  Наличные
-                                </label>
-                                <label className="inline-flex cursor-pointer items-center gap-2">
-                                  <input
-                                    type="radio"
-                                    name="booking-pay-method"
-                                    className="border-gray-300"
-                                    checked={
-                                      bookingFinanceExtra.paymentMethod ===
-                                      "alpha"
-                                    }
-                                    onChange={() =>
-                                      setBookingFinanceExtra((p) => ({
-                                        ...p,
-                                        paymentMethod: "alpha",
-                                      }))
-                                    }
-                                  />
-                                  Альфа-карта
-                                </label>
                               </div>
                             </div>
                           </div>
@@ -4960,7 +4941,8 @@ export default function App() {
                           if (!d) return null;
                           return parseRuDmyToIsoYmd(d) ?? null;
                         })(),
-                        payment_method: bookingFinanceExtra.paymentMethod,
+                        payment_method:
+                          bookingFinanceExtra.paymentMethod || null,
                       };
                       const isEdit = bookingModal.bookingId != null;
                       const url = isEdit

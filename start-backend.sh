@@ -8,6 +8,18 @@ CONTAINER_NAME="greys_postgres"
 
 echo "==> Проверяем контейнер БД..."
 
+# Отдельно проверяем доступ к Docker, чтобы не путать проблему прав
+# с реальным отсутствием запущенного контейнера.
+if ! docker ps >/dev/null 2>&1; then
+  echo "Ошибка: нет доступа к Docker daemon."
+  echo "Проверь доступ к /var/run/docker.sock и повтори запуск."
+  echo "Подсказка (Linux):"
+  echo "  1) sudo usermod -aG docker \$USER"
+  echo "  2) relogin (или newgrp docker)"
+  echo "  3) docker ps"
+  exit 1
+fi
+
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   echo "БД уже запущена."
 else

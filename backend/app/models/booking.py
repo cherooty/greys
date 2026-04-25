@@ -20,6 +20,8 @@ class Booking(Base):
 
     guest_name = Column(String, nullable=False)
     guest_contact = Column(String, nullable=True)
+    guests_count = Column(Integer, nullable=True)
+    messengers = Column(String, nullable=True)
 
     check_in_date = Column(Date, nullable=False)
     check_out_date = Column(Date, nullable=False)
@@ -35,6 +37,12 @@ class Booking(Base):
     source = Column(String, nullable=False, default="manual")
     external_source = Column(String, nullable=True)
     external_id = Column(String, nullable=True)
+
+    commission_price = Column(Float, nullable=True)
+    commission_percent = Column(Float, nullable=True)
+    paid_amount = Column(Float, nullable=True)
+    paid_date = Column(Date, nullable=True)
+    payment_method = Column(String, nullable=True)
 
     notes = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
